@@ -47,7 +47,7 @@ echo -e "${YELLOW}Creating directories...${NC}"
 mkdir -p $DATA_DIR $RUN_DIR $LOG_DIR
 
 # Create INPUT_DIR if it doesn't exist
-INPUT_DIR=${INPUT_DIR:-$(pwd)/data}
+INPUT_DIR=${INPUT_DIR:-$(pwd)/../../data}
 if [ ! -d "$INPUT_DIR" ]; then
     echo -e "${YELLOW}Creating INPUT_DIR: $INPUT_DIR${NC}"
     mkdir -p "$INPUT_DIR"
@@ -96,6 +96,10 @@ BIND_MOUNTS="$BIND_MOUNTS --bind $INPUT_DIR:/data"
 
 if [ -f "./postgres_config/postgresql.conf" ]; then
     BIND_MOUNTS="$BIND_MOUNTS --bind ./postgres_config/postgresql.conf:/etc/postgresql/postgresql.conf"
+fi
+
+if [ -f "./postgres_config/pg_hba.conf" ]; then
+    BIND_MOUNTS="$BIND_MOUNTS --bind ./postgres_config/pg_hba.conf:/etc/postgresql/pg_hba.conf"
 fi
 
 # Start PostgreSQL instance
