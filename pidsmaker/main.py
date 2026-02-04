@@ -356,7 +356,7 @@ if __name__ == "__main__":
     
     # Apply KDE patches if using kde configuration
     if KDE_PATCH_AVAILABLE and 'kde' in args.model.lower():
-        patch_for_kde_time_encoding(args.model, args.dataset)
+        patch_for_kde_time_encoding(cfg)
 
     main(cfg, project=args.project, exp=exp_name, sweep_id=args.sweep_id)
 

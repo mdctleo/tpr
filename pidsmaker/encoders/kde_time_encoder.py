@@ -68,7 +68,8 @@ class KDETimeEncoder(nn.Module):
         self.training_phase = True
         
         # Safety mechanism for memory management (heavily reduced for large graphs)
-        self.max_total_timestamps = 3000000 # max_timestamps_per_edge*MAX_EDGE_ID_MAP_SIZE = 30000*100  # Maximum total timestamps to collect (heavily reduced)
+        self.max_total_timestamps = 180000  # Reduced from 3M to prevent segfault
+        self.max_unique_edges = 18000  # Cap on unique edges to track
         self.total_timestamps_collected = 0
         self.collection_disabled = False
         self._gc_counter = 0  # Counter for periodic garbage collection
