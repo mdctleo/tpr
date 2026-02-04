@@ -18,6 +18,13 @@ from pidsmaker.utils.utils import (
     set_seed,
 )
 
+# Import KDE debug logging (optional - won't fail if not available)
+try:
+    from pidsmaker.kde_patch import log_kde_debug_stats
+    KDE_DEBUG_AVAILABLE = True
+except ImportError:
+    KDE_DEBUG_AVAILABLE = False
+
 
 @torch.no_grad()
 def test_edge_level(
@@ -332,12 +339,24 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                     f"[@epoch{epoch:02d}] Validation finished - Val Loss: {mean_loss:.4f}",
                     return_line=True,
                 )
+                # KDE Debug logging after validation
+                if KDE_DEBUG_AVAILABLE:
+                    try:
+                        log_kde_debug_stats(model, epoch, "validation")
+                    except Exception as e:
+                        log(f"KDE debug logging failed: {e}")
         else:
             if logging:
                 log(
                     f"[@epoch{epoch:02d}] Test finished - Test Loss: {mean_loss:.4f}",
                     return_line=True,
                 )
+                # KDE Debug logging after testing
+                if KDE_DEBUG_AVAILABLE:
+                    try:
+                        log_kde_debug_stats(model, epoch, "testing")
+                    except Exception as e:
+                        log(f"KDE debug logging failed: {e}")
 
     del model
 

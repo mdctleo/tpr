@@ -978,6 +978,14 @@ TASK_ARGS = {
         },
     },
     "postprocessing": {},
+    # KDE (Kernel Density Estimation) parameters for time encoding
+    "kde_params": {
+        "rkhs_dim": Arg(int, desc="Dimension of RKHS vector representation for KDE time encoding."),
+        "min_occurrences": Arg(int, desc="Minimum edge occurrences to use KDE (edges with fewer occurrences use fallback encoder)."),
+        "bandwidth": Arg(str, desc="KDE bandwidth method (e.g., 'scott', 'silverman')."),
+        "n_quadrature_points": Arg(int, desc="Number of Gauss-Hermite quadrature points for RKHS conversion."),
+        "time_dim": Arg(int, desc="Output dimension for time encoding."),
+    },
 }
 
 EXPERIMENTS_CONFIG = {

@@ -1,0 +1,14 @@
+# KAIROS with KDE time encoding using raw timestamps
+# Based on kairos.yml with KDE parameters added
+
+_include_yml: kairos
+
+# KDE-specific parameters for raw timestamp encoding
+# Note: Uses fallback (base KAIROS encoder) for edges with < 10 timestamps
+# KDE is only used for edges with >= 10 timestamps
+kde_params:
+  rkhs_dim: 20
+  min_occurrences: 10
+  bandwidth: 'scott'
+  n_quadrature_points: 10
+  time_dim: 50

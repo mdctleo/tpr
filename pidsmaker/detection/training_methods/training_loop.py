@@ -25,6 +25,13 @@ from pidsmaker.factory import (
 from pidsmaker.tasks.batching import get_preprocessed_graphs
 from pidsmaker.utils.utils import get_device, log, log_start, log_tqdm, set_seed
 
+# Import KDE debug logging (optional - won't fail if not available)
+try:
+    from pidsmaker.kde_patch import log_kde_debug_stats, reset_kde_state, finalize_kde_training
+    KDE_DEBUG_AVAILABLE = True
+except ImportError:
+    KDE_DEBUG_AVAILABLE = False
+
 from . import inference_loop
 
 
@@ -93,6 +100,21 @@ def main(cfg):
             # Before each epoch, we reset the memory
             model.reset_state()
             model.to_fine_tuning(False)
+            
+            # Set current epoch for KDE patch to detect last epoch
+            for name, module in model.named_modules():
+                if hasattr(module, 'forward'):
+                    module._current_epoch = epoch
+                    module._max_epochs = num_epochs
+            
+            # Reset KDE state ONLY for epoch 0 (to clear any previous run's data)
+            # For epochs 1+, preserve KDE vectors computed after epoch 0
+            if KDE_DEBUG_AVAILABLE and epoch == 0:
+                try:
+                    reset_kde_state(model)
+                    log("Reset KDE state for fresh start in epoch 0")
+                except Exception as e:
+                    log(f"KDE state reset failed: {e}")
 
             loss_acc = torch.zeros(1, device=device)
             tot_loss = 0
@@ -140,6 +162,22 @@ def main(cfg):
                 f"[@epoch{epoch:02d}] Training finished - GPU memory: {peak_train_gpu_mem:.2f} GB | CPU memory: {peak_train_cpu_mem:.2f} GB | Mean Loss: {tot_loss:.4f}",
                 return_line=True,
             )
+            
+            # KDE Debug logging after training
+            if KDE_DEBUG_AVAILABLE:
+                try:
+                    log_kde_debug_stats(model, epoch, "training")
+                except Exception as e:
+                    log(f"KDE debug logging failed: {e}")
+                
+                # Build KDE vectors after FIRST epoch (epoch 0) for use in all subsequent epochs
+                if epoch == 0:
+                    try:
+                        log("Building KDE vectors after first epoch...")
+                        finalize_kde_training(model)
+                        log("KDE vectors built successfully - will be used for all subsequent epochs")
+                    except Exception as e:
+                        log(f"KDE finalization failed: {e}")
 
         # Few-shot learning fine tuning
         if use_few_shot:
