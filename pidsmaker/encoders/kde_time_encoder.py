@@ -73,6 +73,12 @@ class KDETimeEncoder(nn.Module):
         self.total_timestamps_collected = 0
         self.collection_disabled = False
         self._gc_counter = 0  # Counter for periodic garbage collection
+    
+    def reset_parameters(self):
+        """Reset parameters of learnable layers."""
+        if hasattr(self.fallback_encoder, 'reset_parameters'):
+            self.fallback_encoder.reset_parameters()
+        self.rkhs_projection.reset_parameters()
         
     def collect_timestamps(self, edge_ids: torch.Tensor, timestamps: torch.Tensor):
         """
@@ -370,6 +376,11 @@ class FallbackTimeEncoder(nn.Module):
         super().__init__()
         self.out_channels = out_channels
         self.lin = nn.Linear(1, out_channels)
+        self.reset_parameters()
+        
+    def reset_parameters(self):
+        """Reset parameters."""
+        self.lin.reset_parameters()
         
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         return self.lin(t.view(-1, 1)).cos()

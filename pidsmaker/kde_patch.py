@@ -62,6 +62,11 @@ class PrecomputedKDETimeEncoder(nn.Module):
         
         # Move to device
         self.to(self.device)
+    
+    def reset_parameters(self):
+        """Reset parameters of learnable layers."""
+        self.rkhs_projection.reset_parameters()
+        self.fallback_encoder.reset_parameters()
         
     def load_kde_vectors(self, kde_file_path: Optional[str] = None):
         """Load precomputed KDE vectors from disk."""
@@ -186,6 +191,11 @@ def patch_for_kde_time_encoding(cfg) -> bool:
                     device=_kde_state.get('device', torch.device('cpu'))
                 )
                 self.out_channels = out_channels
+            
+            def reset_parameters(self):
+                """Reset parameters."""
+                if hasattr(self.kde_encoder, 'reset_parameters'):
+                    self.kde_encoder.reset_parameters()
                 
             def forward(self, t: torch.Tensor) -> torch.Tensor:
                 # This will be overridden in the actual usage

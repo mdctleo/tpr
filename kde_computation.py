@@ -205,6 +205,35 @@ class KDEVectorComputer:
             return 0.0
 
 
+def get_latest_dataset_folder(dataset_name: str) -> str:
+    """
+    Get the latest updated folder in the corresponding dataset directory.
+    
+    Args:
+        dataset_name: Name of the dataset
+        
+    Returns:
+        Path to the latest updated folder
+    """
+    import glob
+    import os
+    
+    base_path = f"/scratch/asawan15/PIDSMaker/artifacts/feat_inference/{dataset_name}/feat_inference"
+    
+    # Find all subdirectories (versioned folders)
+    subdirs = glob.glob(os.path.join(base_path, "*"))
+    subdirs = [d for d in subdirs if os.path.isdir(d)]
+    
+    if not subdirs:
+        raise FileNotFoundError(f"No dataset folders found at {base_path}")
+    
+    # Get the latest by modification time
+    latest_dir = max(subdirs, key=lambda d: os.path.getmtime(d))
+    logger.info(f"Found latest dataset folder: {latest_dir}")
+    
+    return latest_dir
+
+
 def extract_edge_timestamps(cfg: SimpleConfig, dataset_name: str) -> Dict[Tuple[int, int], List[float]]:
     """
     Extract all edges and their timestamps from the dataset.
@@ -222,14 +251,16 @@ def extract_edge_timestamps(cfg: SimpleConfig, dataset_name: str) -> Dict[Tuple[
     
     # Find processed graph files directly
     import glob
-    base_path = f"/home/artifacts/feat_inference/{dataset_name}/feat_inference"
+    
+    # Get the latest dataset folder instead of using a static path
+    base_path = get_latest_dataset_folder(dataset_name)
     
     # Load all splits
     for split in ['train', 'val', 'test']:
         logger.info(f"Processing {split} split...")
         
         # Find all .TemporalData.simple files for this split
-        pattern = f"{base_path}/*/edge_embeds/{split}/*.TemporalData.simple"
+        pattern = f"{base_path}/edge_embeds/{split}/*.TemporalData.simple"
         files = glob.glob(pattern)
         
         if not files:
