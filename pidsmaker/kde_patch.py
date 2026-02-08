@@ -225,25 +225,30 @@ def _patch_tgn_encoder_forward():
         # Store original forward method
         original_forward = tgn_encoder_module.TGNEncoder.forward
         
-        def patched_forward(self, batch):
+        def patched_forward(self, batch, inference=False, **kwargs):
             """Modified forward that passes src/dst to time encoder."""
-            # Get src, dst from batch
-            src, dst = batch.src, batch.dst
-            
             # Store in batch for time encoder access
             if hasattr(self, 'time_encoder') and hasattr(self.time_encoder, 'kde_encoder'):
+                # Derive src/dst from TGN edge index mapped to original node IDs.
+                # batch.edge_index_tgn has local indices; n_id_tgn maps them back
+                # to global node IDs, matching the shape of rel_t in the encoder.
+                edge_index_tgn = batch.edge_index_tgn
+                n_id_tgn = batch.n_id_tgn
+                tgn_src = n_id_tgn[edge_index_tgn[0]]
+                tgn_dst = n_id_tgn[edge_index_tgn[1]]
+
                 # Create a modified time encoding function
                 original_time_enc_forward = self.time_encoder.forward
                 
                 def kde_time_forward(t_diff):
                     # Use the KDE encoder with src/dst information
-                    return self.time_encoder.kde_encoder(src, dst, t_diff)
+                    return self.time_encoder.kde_encoder(tgn_src, tgn_dst, t_diff)
                 
                 # Temporarily replace the forward method
                 self.time_encoder.forward = kde_time_forward
                 
                 # Call original forward
-                result = original_forward(self, batch)
+                result = original_forward(self, batch, inference=inference, **kwargs)
                 
                 # Restore original forward
                 self.time_encoder.forward = original_time_enc_forward
@@ -251,7 +256,7 @@ def _patch_tgn_encoder_forward():
                 return result
             else:
                 # No KDE encoder, use original forward
-                return original_forward(self, batch)
+                return original_forward(self, batch, inference=inference, **kwargs)
         
         # Replace the forward method
         tgn_encoder_module.TGNEncoder.forward = patched_forward
