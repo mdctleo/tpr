@@ -1,0 +1,18 @@
+{
+  "dataset": "CLEARSCOPE_E3",
+  "min_occurrences": 10,
+  "rkhs_dim": 20,
+  "n_quadrature_points": 10,
+  "bandwidth": "scott",
+  "num_edges": 3672,
+  "timestamp": "2026-02-25T12:43:15.257386",
+  "type": "timestamp_differences",
+  "statistics": {
+    "num_edges_with_vectors": 3672,
+    "vector_norm_mean": 10913717860460.021,
+    "vector_norm_std": 16854917533222.27,
+    "vector_norm_min": 256225296.0,
+    "vector_norm_max": 198033761370112.0,
+    "total_size_mb": 1.2831640243530273
+  }
+}

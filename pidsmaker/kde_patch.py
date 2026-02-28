@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 
+from pidsmaker.utils.kde_vector_loader import RKHSVectorLoader
+
 logger = logging.getLogger(__name__)
 
 # Global storage for KDE vectors and state
@@ -34,105 +36,98 @@ class PrecomputedKDETimeEncoder(nn.Module):
     """
     Time encoder that uses precomputed KDE vectors loaded from disk.
     Falls back to standard cosine encoding for edges without KDE vectors.
+
+    Uses RKHSVectorLoader for proper loading of vectors saved by kde_computation.py
+    in the format {'edge_vectors': {(src,dst): tensor}, 'metadata': dict}.
     """
-    
+
     def __init__(
         self,
         out_channels: int,
         rkhs_dim: int = 20,
         dataset_name: Optional[str] = None,
-        kde_file_path: Optional[str] = None,
+        kde_vectors_dir: str = "kde_vectors",
         device: Optional[torch.device] = None
     ):
         super().__init__()
         self.out_channels = out_channels
         self.rkhs_dim = rkhs_dim
         self.dataset_name = dataset_name
-        self.device = device or torch.device('cpu')
-        
+        self._device = device or torch.device('cpu')
+
         # Projection layer to map RKHS vectors to time encoding dimension
         self.rkhs_projection = nn.Linear(rkhs_dim, out_channels)
-        
+
         # Fallback encoder for edges without KDE vectors
         self.fallback_encoder = nn.Linear(1, out_channels)
-        
-        # Load precomputed KDE vectors
-        self.kde_vectors = {}
-        self.load_kde_vectors(kde_file_path)
-        
+
+        # Load precomputed KDE vectors via RKHSVectorLoader
+        self.rkhs_loader: Optional[RKHSVectorLoader] = None
+        if dataset_name is not None:
+            try:
+                self.rkhs_loader = RKHSVectorLoader(dataset_name, kde_vectors_dir)
+                if len(self.rkhs_loader) > 0:
+                    logger.info(f"Loaded {len(self.rkhs_loader)} KDE vectors for {dataset_name}")
+                    _kde_state['stats']['edges_with_kde'] = len(self.rkhs_loader)
+                    _kde_state['vectors_loaded'] = True
+                else:
+                    logger.warning(f"No KDE vectors found for {dataset_name} in {kde_vectors_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to load KDE vectors: {e}")
+
         # Move to device
-        self.to(self.device)
-    
+        self.to(self._device)
+
     def reset_parameters(self):
         """Reset parameters of learnable layers."""
         self.rkhs_projection.reset_parameters()
         self.fallback_encoder.reset_parameters()
-        
-    def load_kde_vectors(self, kde_file_path: Optional[str] = None):
-        """Load precomputed KDE vectors from disk."""
-        if kde_file_path and os.path.exists(kde_file_path):
-            try:
-                data = torch.load(kde_file_path, map_location='cpu')
-                
-                # Convert edge tuples to string keys for faster lookup
-                for edge_tuple, vector in data.items():
-                    if isinstance(edge_tuple, tuple) and len(edge_tuple) == 2:
-                        src, dst = edge_tuple
-                        key = f"{src}_{dst}"
-                        self.kde_vectors[key] = vector.to(self.device)
-                
-                logger.info(f"Loaded {len(self.kde_vectors)} KDE vectors from {kde_file_path}")
-                _kde_state['edges_with_kde'] = len(self.kde_vectors)
-                _kde_state['vectors_loaded'] = True
-            except Exception as e:
-                logger.warning(f"Failed to load KDE vectors from {kde_file_path}: {e}")
-        else:
-            logger.warning(f"KDE vectors file not found: {kde_file_path}")
-    
+
     def forward(self, src: torch.Tensor, dst: torch.Tensor, t_diff: torch.Tensor) -> torch.Tensor:
         """
         Forward pass using precomputed KDE vectors when available.
-        
+
+        For edges with precomputed vectors:
+            output = rkhs_projection(rkhs_vector)  # trainable
+        For edges without precomputed vectors:
+            output = Linear(t_diff).cos()           # trainable fallback
+
         Args:
             src: Source node IDs (batch_size,)
             dst: Destination node IDs (batch_size,)
             t_diff: Time differences (batch_size,)
-            
+
         Returns:
             Time encodings of shape (batch_size, out_channels)
         """
         batch_size = t_diff.shape[0]
         device = t_diff.device
-        
+
+        # If no RKHS vectors loaded, use fallback for all
+        if self.rkhs_loader is None or len(self.rkhs_loader) == 0:
+            return self.fallback_encoder(t_diff.view(-1, 1)).cos()
+
+        # Ensure loader vectors are on the correct device
+        if self.rkhs_loader.device != device:
+            self.rkhs_loader.set_device(device)
+
+        # Batch lookup: get RKHS vectors and mask for which edges have precomputed vectors
+        rkhs_vectors, mask = self.rkhs_loader.get_vectors_batch(src, dst)
+
         # Initialize output
-        output = torch.zeros(batch_size, self.out_channels, device=device)
-        
-        # Process each edge in the batch
-        kde_mask = torch.zeros(batch_size, dtype=torch.bool, device=device)
-        kde_vectors_batch = []
-        
-        for i in range(batch_size):
-            src_id = src[i].item() if torch.is_tensor(src[i]) else src[i]
-            dst_id = dst[i].item() if torch.is_tensor(dst[i]) else dst[i]
-            edge_key = f"{src_id}_{dst_id}"
-            
-            if edge_key in self.kde_vectors:
-                kde_mask[i] = True
-                kde_vectors_batch.append(self.kde_vectors[edge_key])
-                _kde_state['stats']['kde_count'] += 1
-            else:
-                _kde_state['stats']['fallback_count'] += 1
-        
-        # Apply KDE projection for edges with vectors
-        if kde_mask.any():
-            kde_vectors_tensor = torch.stack(kde_vectors_batch).to(device)
-            output[kde_mask] = self.rkhs_projection(kde_vectors_tensor)
-        
-        # Use fallback for edges without KDE vectors
-        if (~kde_mask).any():
-            fallback_input = t_diff[~kde_mask].view(-1, 1)
-            output[~kde_mask] = self.fallback_encoder(fallback_input).cos()
-        
+        output = torch.zeros(batch_size, self.out_channels, device=device, dtype=torch.float32)
+
+        # Project RKHS vectors for edges that have them (trainable)
+        if mask.any():
+            output[mask] = self.rkhs_projection(rkhs_vectors[mask])
+            _kde_state['stats']['kde_count'] += mask.sum().item()
+
+        # Use fallback for edges without RKHS vectors (trainable)
+        if (~mask).any():
+            fallback_input = t_diff[~mask].view(-1, 1)
+            output[~mask] = self.fallback_encoder(fallback_input).cos()
+            _kde_state['stats']['fallback_count'] += (~mask).sum().item()
+
         return output
 
 
@@ -161,15 +156,17 @@ def patch_for_kde_time_encoding(cfg) -> bool:
         rkhs_dim = kde_params.get('rkhs_dim', 20)
         time_dim = kde_params.get('time_dim', 50)
         
-        # Set up KDE file path - use absolute path
+        # Set up KDE vectors directory (resolve relative paths against project root)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        kde_file_path = os.path.join(base_dir, "kde_vectors", f"{dataset_name}_kde_vectors.pt")
+        kde_vectors_dir = kde_params.get('kde_vectors_dir', 'kde_vectors')
+        if not os.path.isabs(kde_vectors_dir):
+            kde_vectors_dir = os.path.join(base_dir, kde_vectors_dir)
         
         logger.info(f"Patching for KDE time encoding:")
         logger.info(f"  Dataset: {dataset_name}")
         logger.info(f"  RKHS dim: {rkhs_dim}")
         logger.info(f"  Time dim: {time_dim}")
-        logger.info(f"  KDE file: {kde_file_path}")
+        logger.info(f"  KDE vectors dir: {kde_vectors_dir}")
         
         # Store configuration in global state
         _kde_state['dataset_name'] = dataset_name
@@ -187,7 +184,7 @@ def patch_for_kde_time_encoding(cfg) -> bool:
                     out_channels=out_channels,
                     rkhs_dim=rkhs_dim,
                     dataset_name=dataset_name,
-                    kde_file_path=kde_file_path,
+                    kde_vectors_dir=kde_vectors_dir,
                     device=_kde_state.get('device', torch.device('cpu'))
                 )
                 self.out_channels = out_channels
@@ -198,7 +195,8 @@ def patch_for_kde_time_encoding(cfg) -> bool:
                     self.kde_encoder.reset_parameters()
                 
             def forward(self, t: torch.Tensor) -> torch.Tensor:
-                # This will be overridden in the actual usage
+                # Standard cosine encoding for TGNMemory internal use
+                # (src/dst-aware KDE encoding is injected via _patch_tgn_encoder_forward)
                 return self.kde_encoder.fallback_encoder(t.view(-1, 1)).cos()
         
         # Replace the TimeEncoder class

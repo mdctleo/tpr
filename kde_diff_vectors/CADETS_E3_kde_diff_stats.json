@@ -1,0 +1,18 @@
+{
+  "dataset": "CADETS_E3",
+  "min_occurrences": 10,
+  "rkhs_dim": 20,
+  "n_quadrature_points": 10,
+  "bandwidth": "scott",
+  "num_edges": 29734,
+  "timestamp": "2026-02-25T12:47:47.973272",
+  "type": "timestamp_differences",
+  "statistics": {
+    "num_edges_with_vectors": 29734,
+    "vector_norm_mean": NaN,
+    "vector_norm_std": NaN,
+    "vector_norm_min": NaN,
+    "vector_norm_max": NaN,
+    "total_size_mb": 10.329102516174316
+  }
+}

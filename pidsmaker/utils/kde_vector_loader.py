@@ -54,6 +54,9 @@ class RKHSVectorLoader:
             logger.info(f"Loaded {len(self.edge_vectors)} RKHS vectors")
             logger.info(f"Metadata: {self.metadata}")
             
+            # Normalize vectors for training stability
+            self._normalize_vectors()
+            
             # Compute memory usage
             total_size_mb = sum(v.numel() * v.element_size() for v in self.edge_vectors.values()) / (1024 * 1024)
             logger.info(f"RKHS vectors memory usage: {total_size_mb:.2f} MB")
@@ -63,6 +66,35 @@ class RKHSVectorLoader:
             self.edge_vectors = {}
             self.metadata = {}
     
+    def _normalize_vectors(self):
+        """
+        Z-score normalize RKHS vectors per feature dimension.
+        
+        Raw RKHS vectors can span 18+ orders of magnitude (e.g., nanosecond timestamps
+        at ~1e18 vs near-zero KDE weighted values). This normalization ensures all
+        features contribute equally to the trainable rkhs_projection layer.
+        """
+        if len(self.edge_vectors) == 0:
+            return
+        
+        import torch
+        
+        # Stack all vectors into a matrix [N, rkhs_dim]
+        all_keys = list(self.edge_vectors.keys())
+        all_vecs = torch.stack([self.edge_vectors[k] for k in all_keys])
+        
+        # Compute per-feature mean and std
+        self._vec_mean = all_vecs.mean(dim=0)
+        self._vec_std = all_vecs.std(dim=0)
+        # Prevent division by zero for constant features
+        self._vec_std[self._vec_std < 1e-8] = 1.0
+        
+        # Apply normalization in-place
+        for k in all_keys:
+            self.edge_vectors[k] = (self.edge_vectors[k] - self._vec_mean) / self._vec_std
+        
+        logger.info(f"Normalized RKHS vectors: mean_norm={self._vec_mean.norm():.4e}, std_range=[{self._vec_std.min():.4e}, {self._vec_std.max():.4e}]")
+
     def get_vector(self, src: int, dst: int) -> Optional[torch.Tensor]:
         """
         Get RKHS vector for an edge.

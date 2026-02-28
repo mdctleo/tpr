@@ -256,7 +256,7 @@ def extract_edge_timestamps(cfg: SimpleConfig, dataset_name: str) -> Dict[Tuple[
     base_path = get_latest_dataset_folder(dataset_name)
     
     # Load all splits
-    for split in ['train', 'val', 'test']:
+    for split in ['train', 'val']:#, 'test']:
         logger.info(f"Processing {split} split...")
         
         # Find all .TemporalData.simple files for this split

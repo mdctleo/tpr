@@ -70,60 +70,22 @@ class PrecomputedKDETimeEncoder(nn.Module):
     
     def forward(
         self,
-        edge_ids: torch.Tensor,
-        timestamps: torch.Tensor,
-        time_diffs: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Forward pass using precomputed RKHS vectors.
-        
-        Args:
-            edge_ids: Edge identifiers (not used, kept for compatibility)
-            timestamps: Absolute timestamps (not used, kept for compatibility)
-            time_diffs: Relative time differences
-            
-        Returns:
-            Time encoding of shape (batch_size, out_channels)
-        """
-        batch_size = time_diffs.shape[0]
-        device = time_diffs.device
-        
-        # Ensure fallback encoder is on correct device
-        if next(self.fallback_encoder.parameters()).device != device:
-            self.fallback_encoder = self.fallback_encoder.to(device)
-        
-        # If no RKHS vectors loaded, use fallback for all
-        if self.rkhs_loader is None or len(self.rkhs_loader) == 0:
-            return self.fallback_encoder(time_diffs)
-        
-        # Set device for RKHS loader
-        if self.rkhs_loader.device != device:
-            self.rkhs_loader.set_device(device)
-        
-        # Initialize output
-        output = torch.zeros(batch_size, self.out_channels, device=device, dtype=torch.float32)
-        
-        # Note: We need src/dst to lookup RKHS vectors
-        # These should be passed via edge_ids or stored in batch
-        # For now, use edge_ids as a proxy
-        # In practice, kde_patch.py will need to pass src/dst
-        
-        # Use fallback for all (will be overridden by batch processing in kde_patch.py)
-        return self.fallback_encoder(time_diffs)
-    
-    def forward_with_edges(
-        self,
         src: torch.Tensor,
         dst: torch.Tensor,
         time_diffs: torch.Tensor
     ) -> torch.Tensor:
         """
-        Forward pass with explicit src/dst for RKHS vector lookup.
+        Forward pass using precomputed RKHS vectors.
+        
+        For edges with precomputed vectors:
+            output = rkhs_projection(rkhs_vector)  # trainable projection
+        For edges without precomputed vectors:
+            output = fallback_encoder(t_diff)       # trainable fallback
         
         Args:
-            src: Source node IDs
-            dst: Destination node IDs
-            time_diffs: Relative time differences
+            src: Source node IDs [batch_size]
+            dst: Destination node IDs [batch_size]
+            time_diffs: Relative time differences [batch_size]
             
         Returns:
             Time encoding of shape (batch_size, out_channels)
@@ -143,22 +105,26 @@ class PrecomputedKDETimeEncoder(nn.Module):
         if self.rkhs_loader.device != device:
             self.rkhs_loader.set_device(device)
         
-        # Get RKHS vectors for batch
+        # Batch lookup: get RKHS vectors and mask for which edges have precomputed vectors
         rkhs_vectors, mask = self.rkhs_loader.get_vectors_batch(src, dst)
         
         # Initialize output
         output = torch.zeros(batch_size, self.out_channels, device=device, dtype=torch.float32)
         
-        # Apply projection to edges with RKHS vectors
+        # Project RKHS vectors for edges that have them (trainable)
         if mask.any():
             output[mask] = self.rkhs_projection(rkhs_vectors[mask])
         
-        # Use fallback for edges without RKHS vectors
+        # Use fallback for edges without RKHS vectors (trainable)
         if (~mask).any():
             fallback_output = self.fallback_encoder(time_diffs[~mask])
             output[~mask] = fallback_output
         
         return output
+    
+    def forward_with_edges(self, src, dst, time_diffs):
+        """Alias for forward() — kept for backward compatibility."""
+        return self.forward(src, dst, time_diffs)
     
     def get_statistics(self):
         """Get statistics about RKHS vector usage."""

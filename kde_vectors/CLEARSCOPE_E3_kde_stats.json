@@ -4,14 +4,14 @@
   "rkhs_dim": 20,
   "n_quadrature_points": 10,
   "bandwidth": "scott",
-  "num_edges": 18015,
-  "timestamp": "2026-02-04T05:57:36.203061",
+  "num_edges": 3672,
+  "timestamp": "2026-02-27T22:06:28.913797",
   "statistics": {
-    "num_edges_with_vectors": 18015,
-    "vector_norm_mean": 3.046737402732661e+18,
-    "vector_norm_std": 440630037425878.8,
-    "vector_norm_min": 3.0453651842069955e+18,
-    "vector_norm_max": 3.0471804779044536e+18,
-    "total_size_mb": 6.232569694519043
+    "num_edges_with_vectors": 3672,
+    "vector_norm_mean": 3.0463321185222764e+18,
+    "vector_norm_std": 397648665159685.94,
+    "vector_norm_min": 3.0454388514860564e+18,
+    "vector_norm_max": 3.046824236137054e+18,
+    "total_size_mb": 1.2656450271606445
   }
 }

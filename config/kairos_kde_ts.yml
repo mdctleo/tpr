@@ -12,3 +12,5 @@ kde_params:
   bandwidth: 'scott'
   n_quadrature_points: 10
   time_dim: 50
+  kde_vectors_dir: kde_vectors  # directory containing precomputed {DATASET}_kde_vectors.pt files
+  use_precomputed: true          # use offline precomputed RKHS vectors (via kde_computation.py)
