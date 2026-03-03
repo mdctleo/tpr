@@ -1,0 +1,15 @@
+tqdm
+networkx
+pandas
+scipy
+matplotlib
+scikit-learn
+requests
+psutil
+torch
+torch_geometric
+pyro-ppl
+river
+pymc
+arviz
+aesara

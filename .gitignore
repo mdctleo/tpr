@@ -1,0 +1,10 @@
+__pycache__
+datasets
+*.out
+*.png
+*.csv
+*.log
+*.pkl
+*.sub
+bnpy/
+.vscode/
