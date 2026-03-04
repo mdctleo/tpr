@@ -985,6 +985,8 @@ TASK_ARGS = {
         "bandwidth": Arg(str, desc="KDE bandwidth method (e.g., 'scott', 'silverman')."),
         "n_quadrature_points": Arg(int, desc="Number of Gauss-Hermite quadrature points for RKHS conversion."),
         "time_dim": Arg(int, desc="Output dimension for time encoding."),
+        "kde_vectors_dir": Arg(str, desc="Directory containing precomputed {DATASET}_kde_vectors.pt files."),
+        "use_precomputed": Arg(bool, desc="Use offline precomputed RKHS vectors (via kde_computation.py)."),
     },
 }
 
