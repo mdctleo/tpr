@@ -1,0 +1,166 @@
+WandB Run to artifacts_base_and_kde_ts Mapping
+==============================================
+
+The 12 most recent wandb runs (from March 9-11, 2026) mapped to their 
+corresponding results in PIDSMaker/artifacts_base_and_kde_ts/
+
+Original data was produced in:
+  - /scratch/asawan15/PIDSMaker/artifacts/evaluation/evaluation/
+  - /scratch/asawan15/PIDSMaker/artifacts_reduced/evaluation/evaluation/
+
+Then copied to artifacts_base_and_kde_ts/ maintaining the evaluation/evaluation/{hash}/{dataset}/ structure.
+
+Run order: oldest → newest (chronological execution order)
+
+Epoch mappings:
+  orthrus_non_snooped_edge_ts: CLEARSCOPE=0, CADETS=5, THEIA=1
+  orthrus_edge_kde_ts:         CLEARSCOPE=0, CADETS=7, THEIA=3
+  kairos_kde_ts:               CLEARSCOPE=1, CADETS=5, THEIA=1
+  kairos:                      CLEARSCOPE=3, CADETS=11, THEIA=0
+
+================================================================================
+ORTHRUS_NON_SNOOPED_EDGE_TS (3 runs) → artifacts/
+================================================================================
+
+1. run-20260309_171849-7x8e9kr5
+   Config:   orthrus_non_snooped_edge_ts
+   Dataset:  CLEARSCOPE_E3
+   Epoch:    0
+   Hash:     293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/293471020f.../CLEARSCOPE_E3/
+   Result:   precision_recall_dir/result_model_epoch_0.pth
+
+2. run-20260309_175233-00kn22b8
+   Config:   orthrus_non_snooped_edge_ts
+   Dataset:  CADETS_E3
+   Epoch:    5
+   Hash:     970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/970c13085c.../CADETS_E3/
+   Result:   precision_recall_dir/result_model_epoch_5.pth
+
+3. run-20260309_192612-rz1jilpo
+   Config:   orthrus_non_snooped_edge_ts
+   Dataset:  THEIA_E3
+   Epoch:    1
+   Hash:     9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/9364ddb2b1.../THEIA_E3/
+   Result:   precision_recall_dir/result_model_epoch_1.pth
+
+================================================================================
+KAIROS (3 runs) → artifacts/
+================================================================================
+
+4. run-20260309_215859-hpddp7e7
+   Config:   kairos
+   Dataset:  CLEARSCOPE_E3
+   Epoch:    3
+   Hash:     2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/2551955c45.../CLEARSCOPE_E3/
+   Result:   precision_recall_dir/result_model_epoch_3.pth
+
+5. run-20260309_223511-yoz4zif4
+   Config:   kairos
+   Dataset:  CADETS_E3
+   Epoch:    11
+   Hash:     133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/133dbd81e3.../CADETS_E3/
+   Result:   precision_recall_dir/result_model_epoch_11.pth
+
+6. run-20260310_004136-i39k6osa
+   Config:   kairos
+   Dataset:  THEIA_E3
+   Epoch:    0
+   Hash:     e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts/evaluation/evaluation/e9f5191a26.../THEIA_E3/
+   Result:   precision_recall_dir/result_model_epoch_0.pth
+
+================================================================================
+ORTHRUS_EDGE_KDE_TS (3 runs) → artifacts_reduced/
+================================================================================
+
+7. run-20260310_221855-0ykjwdjx
+   Config:   orthrus_edge_kde_ts
+   Dataset:  CLEARSCOPE_E3
+   Epoch:    0
+   Hash:     2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/2551955c45.../CLEARSCOPE_E3/
+   Result:   precision_recall_dir/result_model_epoch_0.pth
+
+8. run-20260310_225056-i3bp0hnq
+   Config:   orthrus_edge_kde_ts
+   Dataset:  CADETS_E3
+   Epoch:    7
+   Hash:     970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/970c13085c.../CADETS_E3/
+   Result:   precision_recall_dir/result_model_epoch_7.pth
+
+9. run-20260311_034844-qfrqvbos
+   Config:   orthrus_edge_kde_ts
+   Dataset:  THEIA_E3
+   Epoch:    3
+   Hash:     9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+   Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/9364ddb2b1.../THEIA_E3/
+   Result:   precision_recall_dir/result_model_epoch_3.pth
+
+================================================================================
+KAIROS_KDE_TS (3 runs) → artifacts_reduced/
+================================================================================
+
+10. run-20260311_001503-f7db62q3
+    Config:   kairos_kde_ts
+    Dataset:  CLEARSCOPE_E3
+    Epoch:    1
+    Hash:     293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/293471020f.../CLEARSCOPE_E3/
+    Result:   precision_recall_dir/result_model_epoch_1.pth
+
+11. run-20260311_014856-p02f1so6
+    Config:   kairos_kde_ts
+    Dataset:  CADETS_E3
+    Epoch:    5
+    Hash:     133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/133dbd81e3.../CADETS_E3/
+    Result:   precision_recall_dir/result_model_epoch_5.pth
+
+12. run-20260311_095823-34qijmsp
+    Config:   kairos_kde_ts
+    Dataset:  THEIA_E3
+    Epoch:    1
+    Hash:     e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced/evaluation/evaluation/e9f5191a26.../THEIA_E3/
+    Result:   precision_recall_dir/result_model_epoch_1.pth
+
+================================================================================
+QUICK REFERENCE TABLE
+================================================================================
+
+| # | WandB Run ID    | Timestamp | Config                      | Dataset       | Hash (short) | Epoch |
+|---|-----------------|-----------|----------------------------|---------------|--------------|-------|
+| 1 | 7x8e9kr5        | 17:18     | orthrus_non_snooped_edge_ts | CLEARSCOPE_E3 | 293471020f   |   0   |
+| 2 | 00kn22b8        | 17:52     | orthrus_non_snooped_edge_ts | CADETS_E3     | 970c13085c   |   5   |
+| 3 | rz1jilpo        | 19:26     | orthrus_non_snooped_edge_ts | THEIA_E3      | 9364ddb2b1   |   1   |
+| 4 | hpddp7e7        | 21:59     | kairos                      | CLEARSCOPE_E3 | 2551955c45   |   3   |
+| 5 | yoz4zif4        | 22:35     | kairos                      | CADETS_E3     | 133dbd81e3   |  11   |
+| 6 | i39k6osa        | 00:41     | kairos                      | THEIA_E3      | e9f5191a26   |   0   |
+| 7 | 0ykjwdjx        | 22:18     | orthrus_edge_kde_ts         | CLEARSCOPE_E3 | 2551955c45   |   0   |
+| 8 | i3bp0hnq        | 22:50     | orthrus_edge_kde_ts         | CADETS_E3     | 970c13085c   |   7   |
+| 9 | qfrqvbos        | 03:48     | orthrus_edge_kde_ts         | THEIA_E3      | 9364ddb2b1   |   3   |
+|10 | f7db62q3        | 00:15     | kairos_kde_ts               | CLEARSCOPE_E3 | 293471020f   |   1   |
+|11 | p02f1so6        | 01:48     | kairos_kde_ts               | CADETS_E3     | 133dbd81e3   |   5   |
+|12 | 34qijmsp        | 09:58     | kairos_kde_ts               | THEIA_E3      | e9f5191a26   |   1   |
+
+================================================================================
+NOTES
+================================================================================
+
+1. The wandb runs are from March 9-11, 2026 (updated from older mapping).
+
+2. Hash sharing pattern (same hash, different configs):
+   - 293471020f: orthrus_non_snooped_edge_ts/CLEARSCOPE (artifacts) + kairos_kde_ts/CLEARSCOPE (artifacts_reduced)
+   - 970c13085c: orthrus_non_snooped_edge_ts/CADETS (artifacts) + orthrus_edge_kde_ts/CADETS (artifacts_reduced)
+   - 9364ddb2b1: orthrus_non_snooped_edge_ts/THEIA (artifacts) + orthrus_edge_kde_ts/THEIA (artifacts_reduced)
+   - 2551955c45: kairos/CLEARSCOPE (artifacts) + orthrus_edge_kde_ts/CLEARSCOPE (artifacts_reduced)
+   - 133dbd81e3: kairos/CADETS (artifacts) + kairos_kde_ts/CADETS (artifacts_reduced)
+   - e9f5191a26: kairos/THEIA (artifacts) + kairos_kde_ts/THEIA (artifacts_reduced)
+
+3. Path structure: PIDSMaker/artifacts_base_and_kde_ts/{artifacts|artifacts_reduced}/evaluation/evaluation/{hash}/{dataset}/
