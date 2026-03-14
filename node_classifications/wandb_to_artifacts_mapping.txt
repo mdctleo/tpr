@@ -17,6 +17,8 @@ Epoch mappings:
   orthrus_edge_kde_ts:         CLEARSCOPE=0, CADETS=7, THEIA=3
   kairos_kde_ts:               CLEARSCOPE=1, CADETS=5, THEIA=1
   kairos:                      CLEARSCOPE=3, CADETS=11, THEIA=0
+  orthrus_kde_diff:            CLEARSCOPE=0, CADETS=11, THEIA=0
+  kairos_kde_diff:             CLEARSCOPE=3, CADETS=11, THEIA=1
 
 ================================================================================
 ORTHRUS_NON_SNOOPED_EDGE_TS (3 runs) → artifacts/
@@ -131,6 +133,62 @@ KAIROS_KDE_TS (3 runs) → artifacts_reduced/
     Result:   precision_recall_dir/result_model_epoch_1.pth
 
 ================================================================================
+ORTHRUS_KDE_DIFF (3 runs) → artifacts_reduced_diff/
+================================================================================
+
+13. run-20260312_024850-1rdvg17i
+    Config:   orthrus_kde_diff
+    Dataset:  CLEARSCOPE_E3
+    Epoch:    0
+    Hash:     2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/2551955c45.../CLEARSCOPE_E3/
+    Result:   precision_recall_dir/result_model_epoch_0.pth
+
+14. run-20260312_033244-h76oid10
+    Config:   orthrus_kde_diff
+    Dataset:  CADETS_E3
+    Epoch:    11
+    Hash:     970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/970c13085c.../CADETS_E3/
+    Result:   precision_recall_dir/result_model_epoch_11.pth
+
+15. run-20260312_085158-qgjrmul7
+    Config:   orthrus_kde_diff
+    Dataset:  THEIA_E3
+    Epoch:    0
+    Hash:     9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/9364ddb2b1.../THEIA_E3/
+    Result:   precision_recall_dir/result_model_epoch_0.pth
+
+================================================================================
+KAIROS_KDE_DIFF (3 runs) → artifacts_reduced_diff/
+================================================================================
+
+16. run-20260312_021351-rgkv2akv
+    Config:   kairos_kde_diff
+    Dataset:  CLEARSCOPE_E3
+    Epoch:    3
+    Hash:     293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/293471020f.../CLEARSCOPE_E3/
+    Result:   precision_recall_dir/result_model_epoch_3.pth
+
+17. run-20260312_033343-qb4y0wmx
+    Config:   kairos_kde_diff
+    Dataset:  CADETS_E3
+    Epoch:    11
+    Hash:     133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/133dbd81e3.../CADETS_E3/
+    Result:   precision_recall_dir/result_model_epoch_11.pth
+
+18. run-20260312_112135-6embts1w
+    Config:   kairos_kde_diff
+    Dataset:  THEIA_E3
+    Epoch:    1
+    Hash:     e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+    Path:     PIDSMaker/artifacts_base_and_kde_ts/artifacts_reduced_diff/evaluation/evaluation/e9f5191a26.../THEIA_E3/
+    Result:   precision_recall_dir/result_model_epoch_1.pth
+
+================================================================================
 QUICK REFERENCE TABLE
 ================================================================================
 
@@ -148,19 +206,25 @@ QUICK REFERENCE TABLE
 |10 | f7db62q3        | 00:15     | kairos_kde_ts               | CLEARSCOPE_E3 | 293471020f   |   1   |
 |11 | p02f1so6        | 01:48     | kairos_kde_ts               | CADETS_E3     | 133dbd81e3   |   5   |
 |12 | 34qijmsp        | 09:58     | kairos_kde_ts               | THEIA_E3      | e9f5191a26   |   1   |
+|13 | 1rdvg17i        | 02:48     | orthrus_kde_diff            | CLEARSCOPE_E3 | 2551955c45   |   0   |
+|14 | h76oid10        | 03:32     | orthrus_kde_diff            | CADETS_E3     | 970c13085c   |  11   |
+|15 | qgjrmul7        | 08:51     | orthrus_kde_diff            | THEIA_E3      | 9364ddb2b1   |   0   |
+|16 | rgkv2akv        | 02:13     | kairos_kde_diff             | CLEARSCOPE_E3 | 293471020f   |   3   |
+|17 | qb4y0wmx        | 03:33     | kairos_kde_diff             | CADETS_E3     | 133dbd81e3   |  11   |
+|18 | 6embts1w        | 11:21     | kairos_kde_diff             | THEIA_E3      | e9f5191a26   |   1   |
 
 ================================================================================
 NOTES
 ================================================================================
 
-1. The wandb runs are from March 9-11, 2026 (updated from older mapping).
+1. The wandb runs are from March 9-12, 2026 (updated to include kde_diff configs).
 
 2. Hash sharing pattern (same hash, different configs):
-   - 293471020f: orthrus_non_snooped_edge_ts/CLEARSCOPE (artifacts) + kairos_kde_ts/CLEARSCOPE (artifacts_reduced)
-   - 970c13085c: orthrus_non_snooped_edge_ts/CADETS (artifacts) + orthrus_edge_kde_ts/CADETS (artifacts_reduced)
-   - 9364ddb2b1: orthrus_non_snooped_edge_ts/THEIA (artifacts) + orthrus_edge_kde_ts/THEIA (artifacts_reduced)
-   - 2551955c45: kairos/CLEARSCOPE (artifacts) + orthrus_edge_kde_ts/CLEARSCOPE (artifacts_reduced)
-   - 133dbd81e3: kairos/CADETS (artifacts) + kairos_kde_ts/CADETS (artifacts_reduced)
-   - e9f5191a26: kairos/THEIA (artifacts) + kairos_kde_ts/THEIA (artifacts_reduced)
+   - 293471020f: orthrus_non_snooped_edge_ts/CLEARSCOPE (artifacts) + kairos_kde_ts/CLEARSCOPE (artifacts_reduced) + kairos_kde_diff/CLEARSCOPE (artifacts_reduced_diff)
+   - 970c13085c: orthrus_non_snooped_edge_ts/CADETS (artifacts) + orthrus_edge_kde_ts/CADETS (artifacts_reduced) + orthrus_kde_diff/CADETS (artifacts_reduced_diff)
+   - 9364ddb2b1: orthrus_non_snooped_edge_ts/THEIA (artifacts) + orthrus_edge_kde_ts/THEIA (artifacts_reduced) + orthrus_kde_diff/THEIA (artifacts_reduced_diff)
+   - 2551955c45: kairos/CLEARSCOPE (artifacts) + orthrus_edge_kde_ts/CLEARSCOPE (artifacts_reduced) + orthrus_kde_diff/CLEARSCOPE (artifacts_reduced_diff)
+   - 133dbd81e3: kairos/CADETS (artifacts) + kairos_kde_ts/CADETS (artifacts_reduced) + kairos_kde_diff/CADETS (artifacts_reduced_diff)
+   - e9f5191a26: kairos/THEIA (artifacts) + kairos_kde_ts/THEIA (artifacts_reduced) + kairos_kde_diff/THEIA (artifacts_reduced_diff)
 
-3. Path structure: PIDSMaker/artifacts_base_and_kde_ts/{artifacts|artifacts_reduced}/evaluation/evaluation/{hash}/{dataset}/
+3. Path structure: PIDSMaker/artifacts_base_and_kde_ts/{artifacts|artifacts_reduced|artifacts_reduced_diff}/evaluation/evaluation/{hash}/{dataset}/

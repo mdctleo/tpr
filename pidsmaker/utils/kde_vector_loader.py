@@ -3,12 +3,15 @@ RKHS Vector Loader for KAIROS-KDE
 
 This module provides utilities to load precomputed RKHS vectors from disk
 and make them available during training with O(1) lookup.
+
+Edge keys are 3-tuples: (src, dst, edge_type)
 """
 
 import logging
 import os
 from typing import Dict, Optional, Tuple
 
+import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
@@ -29,7 +32,7 @@ class RKHSVectorLoader:
         """
         self.dataset_name = dataset_name
         self.kde_vectors_dir = kde_vectors_dir
-        self.edge_vectors: Dict[Tuple[int, int], torch.Tensor] = {}
+        self.edge_vectors: Dict[Tuple[int, int, int], torch.Tensor] = {}
         self.metadata: Dict = {}
         self.device = None
         
@@ -95,40 +98,36 @@ class RKHSVectorLoader:
         
         logger.info(f"Normalized RKHS vectors: mean_norm={self._vec_mean.norm():.4e}, std_range=[{self._vec_std.min():.4e}, {self._vec_std.max():.4e}]")
 
-    def get_vector(self, src: int, dst: int) -> Optional[torch.Tensor]:
+    def get_vector(self, src: int, dst: int, edge_type: int = 0) -> Optional[torch.Tensor]:
         """
         Get RKHS vector for an edge.
         
         Args:
             src: Source node ID
             dst: Destination node ID
+            edge_type: Edge type (default 0)
             
         Returns:
             RKHS vector if available, None otherwise
         """
-        edge_key = (src, dst)
-        vector = self.edge_vectors.get(edge_key)
-        
-        if vector is not None and self.device is not None:
-            # Move to correct device if needed
-            if vector.device != self.device:
-                vector = vector.to(self.device)
-                # Update cache with device-moved vector
-                self.edge_vectors[edge_key] = vector
-        
-        return vector
+        edge_key = (src, dst, edge_type)
+        # Vectors already on correct device (moved in set_device)
+        return self.edge_vectors.get(edge_key)
     
-    def get_vectors_batch(self, src_batch: torch.Tensor, dst_batch: torch.Tensor) -> torch.Tensor:
+    def get_vectors_batch(self, src_batch: torch.Tensor, dst_batch: torch.Tensor, 
+                           edge_type_batch: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Get RKHS vectors for a batch of edges.
         
         Args:
             src_batch: Batch of source node IDs
             dst_batch: Batch of destination node IDs
+            edge_type_batch: Batch of edge types (if None, defaults to 0)
             
         Returns:
-            Tensor of shape (batch_size, rkhs_dim) with RKHS vectors.
-            Returns None for edges without precomputed vectors.
+            Tuple of:
+                - Tensor of shape (batch_size, rkhs_dim) with RKHS vectors
+                - Boolean mask indicating which edges have precomputed vectors
         """
         batch_size = src_batch.shape[0]
         rkhs_dim = self.metadata.get('rkhs_dim', 20)
@@ -142,25 +141,48 @@ class RKHSVectorLoader:
         src_cpu = src_batch.cpu().numpy()
         dst_cpu = dst_batch.cpu().numpy()
         
-        # Lookup vectors
+        # Handle edge types
+        if edge_type_batch is not None:
+            if isinstance(edge_type_batch, torch.Tensor):
+                if edge_type_batch.ndim == 2:
+                    # One-hot encoded, get indices
+                    edge_types_cpu = edge_type_batch.max(dim=1).indices.cpu().numpy()
+                else:
+                    edge_types_cpu = edge_type_batch.cpu().numpy()
+            else:
+                edge_types_cpu = edge_type_batch
+        else:
+            edge_types_cpu = np.zeros(batch_size, dtype=np.int64)
+        
+        # Lookup vectors using 3-tuple keys
         for i in range(batch_size):
-            edge_key = (int(src_cpu[i]), int(dst_cpu[i]))
+            edge_key = (int(src_cpu[i]), int(dst_cpu[i]), int(edge_types_cpu[i]))
             vector = self.edge_vectors.get(edge_key)
             
             if vector is not None:
-                vectors[i] = vector.to(device)
+                # Vectors already on correct device (moved in set_device)
+                vectors[i] = vector
                 mask[i] = True
         
         return vectors, mask
     
     def set_device(self, device: torch.device):
-        """Set the device for RKHS vectors."""
+        """Set the device for RKHS vectors and move all vectors to that device."""
+        if self.device == device:
+            return  # Already on correct device
+        
         self.device = device
-        logger.info(f"RKHS vector device set to: {device}")
+        logger.info(f"Moving {len(self.edge_vectors)} RKHS vectors to device: {device}")
+        
+        # Move all vectors to device once (keeps them in memory for the entire run)
+        for edge_key in self.edge_vectors:
+            self.edge_vectors[edge_key] = self.edge_vectors[edge_key].to(device)
+        
+        logger.info(f"RKHS vectors moved to device: {device}")
     
-    def has_vector(self, src: int, dst: int) -> bool:
+    def has_vector(self, src: int, dst: int, edge_type: int = 0) -> bool:
         """Check if RKHS vector exists for an edge."""
-        return (src, dst) in self.edge_vectors
+        return (src, dst, edge_type) in self.edge_vectors
     
     def get_coverage_stats(self) -> Dict:
         """Get statistics about RKHS vector coverage."""
@@ -175,7 +197,7 @@ class RKHSVectorLoader:
         """Return number of edges with precomputed vectors."""
         return len(self.edge_vectors)
     
-    def __contains__(self, edge_key: Tuple[int, int]) -> bool:
+    def __contains__(self, edge_key: Tuple[int, int, int]) -> bool:
         """Check if edge has precomputed vector."""
         return edge_key in self.edge_vectors
 

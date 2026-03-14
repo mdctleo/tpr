@@ -7,9 +7,11 @@ Handles model training with:
 - Early stopping with patience
 - Memory tracking (GPU and CPU)
 - Validation-based model selection
+- Batch timing instrumentation for KDE analysis
 """
 
 import copy
+import os
 import tracemalloc
 from time import perf_counter as timer
 
@@ -31,6 +33,18 @@ try:
     KDE_DEBUG_AVAILABLE = True
 except ImportError:
     KDE_DEBUG_AVAILABLE = False
+
+# Import batch timing instrumentation (optional)
+try:
+    from pidsmaker.utils.batch_timing import (
+        init_global_tracker,
+        get_global_tracker,
+        is_tracking_enabled,
+        BatchTimingTracker,
+    )
+    BATCH_TIMING_AVAILABLE = True
+except ImportError:
+    BATCH_TIMING_AVAILABLE = False
 
 from . import inference_loop
 
@@ -67,6 +81,53 @@ def main(cfg):
         data_sample=train_data[0][0], device=device, cfg=cfg, max_node_num=max_node_num
     )
     optimizer = optimizer_factory(cfg, parameters=set(model.parameters()))
+
+    # Initialize batch timing tracker if enabled
+    # Works for both KDE configs (kde_params) and baseline configs (batch_timing_vectors_dir)
+    batch_tracker = None
+    enable_batch_timing = getattr(cfg.training, 'enable_batch_timing', False)
+    
+    if BATCH_TIMING_AVAILABLE and enable_batch_timing:
+        try:
+            # Determine KDE vectors directory and min_occurrences
+            # Priority: kde_params.kde_vectors_dir (if set) > batch_timing_vectors_dir (if baseline config)
+            kde_vectors_dir = None
+            min_occurrences = 10  # default
+            config_type = "unknown"
+            
+            # Check if kde_params has actual values (not just None placeholders)
+            kde_params_kde_vectors_dir = getattr(cfg.kde_params, 'kde_vectors_dir', None) if hasattr(cfg, 'kde_params') else None
+            
+            if kde_params_kde_vectors_dir:
+                # KDE config with kde_vectors_dir set
+                kde_vectors_dir = kde_params_kde_vectors_dir
+                min_occurrences = getattr(cfg.kde_params, 'min_occurrences', 10) or 10
+                config_type = "KDE"
+            elif hasattr(cfg.training, 'batch_timing_vectors_dir') and cfg.training.batch_timing_vectors_dir:
+                # Baseline config - use batch_timing_vectors_dir for taint tracking only
+                kde_vectors_dir = cfg.training.batch_timing_vectors_dir
+                min_occurrences = getattr(cfg.training, 'batch_timing_min_occurrences', 10) or 10
+                config_type = "baseline"
+            
+            if kde_vectors_dir:
+                # Store batch timing results under evaluation task path
+                timing_output_dir = os.path.join(cfg.evaluation._task_path, "batch_timing")
+                
+                batch_tracker = init_global_tracker(
+                    dataset_name=cfg.dataset.name,
+                    kde_vectors_dir=kde_vectors_dir,
+                    output_dir=timing_output_dir,
+                    device=device,
+                    min_occurrences=min_occurrences,
+                )
+                log(f"Batch timing tracker initialized for {cfg.dataset.name} ({config_type} config)")
+                log(f"Using KDE vectors from: {kde_vectors_dir} with min_occurrences={min_occurrences}")
+                log(f"Batch timing results will be saved to: {timing_output_dir}")
+            else:
+                log(f"Batch timing enabled but no kde_vectors_dir configured (need kde_params.kde_vectors_dir or batch_timing_vectors_dir)")
+        except Exception as e:
+            log(f"Failed to initialize batch timing tracker: {e}")
+            batch_tracker = None
 
     run_evaluation = cfg.training_loop.run_evaluation
     assert run_evaluation in ["best_epoch", "each_epoch"], (
@@ -118,6 +179,7 @@ def main(cfg):
 
             loss_acc = torch.zeros(1, device=device)
             tot_loss = 0
+            batch_idx = 0
             for dataset in train_data:
                 for i, g in enumerate(log_tqdm(dataset, "Training")):
                     g.to(device=device)
@@ -125,16 +187,47 @@ def main(cfg):
                     model.train()
                     optimizer.zero_grad()
 
-                    results = model(g)
-                    loss = results["loss"]
-                    loss_acc += loss
-                    tot_loss += loss.item()
+                    # Time the forward pass if tracker is available
+                    if batch_tracker is not None:
+                        batch_tracker.set_epoch(epoch)
+                        batch_tracker.set_split('train')
+                        
+                        # Start backward timing
+                        backward_start = None
+                        
+                        def forward_fn(batch):
+                            return model(batch)
+                        
+                        results, forward_time = batch_tracker.time_forward(g, forward_fn, phase='train')
+                        loss = results["loss"]
+                        loss_acc += loss
+                        tot_loss += loss.item()
 
-                    if (i + 1) % grad_acc == 0:
-                        loss_acc.backward()
-                        optimizer.step()
-                        loss_acc = torch.zeros(1, device=device)
+                        if (i + 1) % grad_acc == 0:
+                            backward_start = timer()
+                            loss_acc.backward()
+                            optimizer.step()
+                            backward_time_ms = (timer() - backward_start) * 1000
+                            batch_tracker.record_backward_time(backward_time_ms)
+                            loss_acc = torch.zeros(1, device=device)
+                        
+                        # Log tainted batches periodically
+                        if batch_idx % 100 == 0 and batch_tracker.results:
+                            last_result = batch_tracker.results[-1]
+                            if last_result.kde_eligible_edges > 0:
+                                batch_tracker.log_batch_detail(last_result)
+                    else:
+                        results = model(g)
+                        loss = results["loss"]
+                        loss_acc += loss
+                        tot_loss += loss.item()
 
+                        if (i + 1) % grad_acc == 0:
+                            loss_acc.backward()
+                            optimizer.step()
+                            loss_acc = torch.zeros(1, device=device)
+
+                    batch_idx += 1
                     g.to("cpu")
                     if use_cuda:
                         torch.cuda.empty_cache()
@@ -312,6 +405,34 @@ def main(cfg):
             ),
         }
     )
+
+    # Log batch timing summary and save results
+    if batch_tracker is not None:
+        try:
+            log("\n" + "=" * 60)
+            log("BATCH TIMING ANALYSIS")
+            log("=" * 60)
+            batch_tracker.log_summary()
+            
+            # Save detailed results
+            results_file = batch_tracker.save_results(f"batch_timing_{cfg.dataset.name}.json")
+            tainted_file = batch_tracker.save_detailed_tainted_report(f"tainted_batches_{cfg.dataset.name}.json")
+            
+            # Log to wandb
+            tainted_batches = batch_tracker.get_tainted_batches(min_taint_ratio=0.0)
+            tainted_count = len([r for r in tainted_batches if r.kde_eligible_edges > 0])
+            total_batches = len(batch_tracker.results)
+            
+            wandb.log({
+                "batch_timing/total_batches": total_batches,
+                "batch_timing/tainted_batches": tainted_count,
+                "batch_timing/taint_percentage": tainted_count / total_batches * 100 if total_batches > 0 else 0,
+            })
+            
+            log(f"Batch timing results saved to {results_file}")
+            log(f"Tainted batches report saved to {tainted_file}")
+        except Exception as e:
+            log(f"Failed to save batch timing results: {e}")
 
     return best_val_score
 

@@ -16,6 +16,7 @@ import os
 BASE_DIR = "/scratch/asawan15/PIDSMaker/node_classifications"
 
 SCENARIOS = [
+    # Original KDE (raw timestamps) comparisons
     {
         "name": "orthrus_edge_kde_ts_vs_orthrus_non_snooped_edge_ts",
         "A": "orthrus_edge_kde_ts",
@@ -24,6 +25,17 @@ SCENARIOS = [
     {
         "name": "kairos_kde_ts_vs_kairos",
         "A": "kairos_kde_ts",
+        "B": "kairos",
+    },
+    # KDE diff (timestamp differences) comparisons
+    {
+        "name": "orthrus_kde_diff_vs_orthrus_non_snooped_edge_ts",
+        "A": "orthrus_kde_diff",
+        "B": "orthrus_non_snooped_edge_ts",
+    },
+    {
+        "name": "kairos_kde_diff_vs_kairos",
+        "A": "kairos_kde_diff",
         "B": "kairos",
     },
 ]

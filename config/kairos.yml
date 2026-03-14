@@ -41,6 +41,9 @@ batching:
   inter_graph_batching:
     used_method: none
 training:
+  enable_batch_timing: true     # Enable timing instrumentation for KDE-eligible batches
+  batch_timing_vectors_dir: "kde_vectors"  # Path to KDE vectors for taint identification (baseline config)
+  batch_timing_min_occurrences: 10         # Min occurrences threshold for taint tracking
   used_method: default
   use_seed: True
   deterministic: False

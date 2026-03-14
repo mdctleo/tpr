@@ -39,6 +39,100 @@ _global_timing_state = {
 }
 
 
+def extract_edge_type_from_msg(msg: torch.Tensor, node_type_dim: int = 8, edge_type_dim: int = 16, return_tensor: bool = True) -> torch.Tensor:
+    """
+    Extract edge type indices from the msg tensor.
+    
+    The msg tensor structure is: [src_type, src_emb, edge_type, dst_type, dst_emb]
+    where edge_type is one-hot encoded at position (node_type_dim + emb_dim).
+    
+    Args:
+        msg: Message tensor of shape (N, msg_dim)
+        node_type_dim: Number of node type dimensions (default 8 for DARPA E3)
+        edge_type_dim: Number of edge type dimensions (default 16 for DARPA E3)
+        return_tensor: If True, return a torch.Tensor (stays on same device as msg).
+                       If False, return numpy array on CPU (legacy behavior).
+        
+    Returns:
+        Tensor/Array of edge type indices (argmax of the one-hot edge type portion)
+    """
+    msg_dim = msg.shape[1]
+    
+    # Calculate emb_dim from msg structure:
+    # msg_dim = node_type_dim + emb_dim + edge_type_dim + node_type_dim + emb_dim
+    # msg_dim = 2 * node_type_dim + 2 * emb_dim + edge_type_dim
+    emb_dim = (msg_dim - 2 * node_type_dim - edge_type_dim) // 2
+    
+    # Edge type starts at: node_type_dim + emb_dim
+    edge_type_start = node_type_dim + emb_dim
+    edge_type_end = edge_type_start + edge_type_dim
+    
+    # Extract edge type slice and get argmax (stays on same device as msg)
+    edge_type_slice = msg[:, edge_type_start:edge_type_end]
+    edge_types = edge_type_slice.argmax(dim=1)
+    
+    if return_tensor:
+        return edge_types
+    else:
+        return edge_types.cpu().numpy()
+
+
+def build_kde_edge_tensor(kde_eligible_edges: Set[Tuple[int, int, int]], device: torch.device = None) -> torch.Tensor:
+    """
+    Convert KDE eligible edges set to a tensor for GPU-accelerated lookups.
+    
+    Args:
+        kde_eligible_edges: Set of (src, dst, edge_type) tuples
+        device: Target device (default: cuda if available, else cpu)
+        
+    Returns:
+        Tensor of shape (N, 3) containing [src, dst, edge_type] for each edge
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    if not kde_eligible_edges:
+        return torch.empty((0, 3), dtype=torch.long, device=device)
+    
+    edge_list = list(kde_eligible_edges)
+    edge_tensor = torch.tensor(edge_list, dtype=torch.long, device=device)
+    return edge_tensor
+
+
+def build_kde_edge_hash_tensor(kde_eligible_edges: Set[Tuple[int, int, int]], device: torch.device = None) -> torch.Tensor:
+    """
+    Build a sorted tensor of edge hashes for efficient GPU binary search lookup.
+    
+    Uses a hash function to combine (src, dst, edge_type) into a single int64.
+    This enables O(N log M) lookup instead of O(N × M) for broadcasting.
+    
+    Args:
+        kde_eligible_edges: Set of (src, dst, edge_type) tuples
+        device: Target device (default: cuda if available, else cpu)
+        
+    Returns:
+        Sorted tensor of edge hashes (int64)
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    if not kde_eligible_edges:
+        return torch.empty((0,), dtype=torch.long, device=device)
+    
+    # Hash function: combine src, dst, edge_type into a single int64
+    # Using bit shifts: hash = (src << 40) | (dst << 16) | edge_type
+    # This works for node IDs up to 2^24 (~16M) and edge types up to 2^16 (~65K)
+    hashes = []
+    for src, dst, et in kde_eligible_edges:
+        h = (src << 40) | (dst << 16) | et
+        hashes.append(h)
+    
+    hash_tensor = torch.tensor(hashes, dtype=torch.long, device=device)
+    # Sort for binary search
+    hash_tensor = hash_tensor.sort().values
+    return hash_tensor
+
+
 @dataclass
 class BatchTimingResult:
     """Result from timing a single batch."""
@@ -92,6 +186,8 @@ class BatchTimingTracker:
     timestamps in the full dataset).
     
     Edge keys are 3-tuples: (src, dst, edge_type)
+    
+    GPU Optimization: KDE-eligible edges are stored as a tensor for vectorized lookups.
     """
     
     def __init__(
@@ -116,7 +212,7 @@ class BatchTimingTracker:
         self.edge_occurrence_counts = edge_occurrence_counts or {}
         self.min_occurrences = min_occurrences
         self.output_dir = output_dir
-        self.device = device
+        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         self.results: List[BatchTimingResult] = []
         self.batch_counter = 0
@@ -124,7 +220,7 @@ class BatchTimingTracker:
         self.current_split = 'train'
         
         # CUDA timing events
-        self._use_cuda = device is not None and device.type == 'cuda'
+        self._use_cuda = self.device.type == 'cuda'
         if self._use_cuda:
             self._starter = torch.cuda.Event(enable_timing=True)
             self._ender = torch.cuda.Event(enable_timing=True)
@@ -136,8 +232,26 @@ class BatchTimingTracker:
         self._batch_start_time = None
         self._batch_cuda_start = None
         
+        # GPU-accelerated KDE edge tensor for vectorized lookups
+        self._kde_edge_tensor = build_kde_edge_tensor(self.kde_eligible_edges, self.device)
+        
+        # Hash-based lookup tensor for memory-efficient O(N log M) search
+        self._kde_edge_hashes = build_kde_edge_hash_tensor(self.kde_eligible_edges, self.device)
+        
+        # Pre-compute edge occurrence counts tensor for edges that could be reduced
+        self._edge_counts_tensor = None
+        # Map from hash to count for efficient lookup
+        self._edge_hash_to_count = {}
+        if edge_occurrence_counts:
+            counts = [edge_occurrence_counts.get(e, 1) for e in self.kde_eligible_edges]
+            self._edge_counts_tensor = torch.tensor(counts, dtype=torch.long, device=self.device)
+            # Build hash-to-count mapping for hash-based lookup
+            for (src, dst, et), count in edge_occurrence_counts.items():
+                h = (src << 40) | (dst << 16) | et
+                self._edge_hash_to_count[h] = count
+        
         os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"BatchTimingTracker initialized with {len(self.kde_eligible_edges)} KDE-eligible edges")
+        logger.info(f"BatchTimingTracker initialized with {len(self.kde_eligible_edges)} KDE-eligible edges (device: {self.device})")
     
     def start_batch(self):
         """Start timing a batch. Call this before processing the batch."""
@@ -219,63 +333,182 @@ class BatchTimingTracker:
         """Set the current split (train/val/test) for tracking."""
         self.current_split = split
     
+    def _find_kde_eligible_hash_based(self, src: torch.Tensor, dst: torch.Tensor, edge_types: torch.Tensor) -> Tuple[torch.Tensor, int]:
+        """
+        Memory-efficient hash-based method to find KDE-eligible edges using searchsorted.
+        
+        Uses O(N log M) time and O(N) memory instead of O(N × M) memory for broadcasting.
+        
+        Args:
+            src: Source node tensor (N,) on GPU
+            dst: Destination node tensor (N,) on GPU
+            edge_types: Edge type tensor (N,) on GPU
+            
+        Returns:
+            Tuple of (boolean mask of KDE-eligible edges, count of edges that could be reduced)
+        """
+        if len(self._kde_edge_hashes) == 0:
+            return torch.zeros(len(src), dtype=torch.bool, device=src.device), 0
+        
+        # Compute hashes for batch edges: hash = (src << 40) | (dst << 16) | edge_type
+        batch_hashes = (src.long() << 40) | (dst.long() << 16) | edge_types.long()
+        
+        # Use searchsorted for O(log M) lookup per edge
+        indices = torch.searchsorted(self._kde_edge_hashes, batch_hashes)
+        
+        # Check if the found index contains the actual hash (searchsorted gives insertion point)
+        # Clamp indices to valid range
+        indices_clamped = indices.clamp(max=len(self._kde_edge_hashes) - 1)
+        kde_eligible_mask = (self._kde_edge_hashes[indices_clamped] == batch_hashes)
+        
+        # Count edges that could be reduced (KDE-eligible with count > 1)
+        edges_could_reduce = 0
+        if self._edge_hash_to_count and kde_eligible_mask.any():
+            # Get eligible edge hashes and check counts
+            eligible_hashes = batch_hashes[kde_eligible_mask].cpu().numpy()
+            for h in eligible_hashes:
+                if self._edge_hash_to_count.get(int(h), 1) > 1:
+                    edges_could_reduce += 1
+        
+        return kde_eligible_mask, edges_could_reduce
+    
+    def _find_kde_eligible_vectorized(self, src: torch.Tensor, dst: torch.Tensor, edge_types: torch.Tensor) -> Tuple[torch.Tensor, int]:
+        """
+        GPU-accelerated method to find KDE-eligible edges.
+        
+        Automatically chooses between hash-based (memory-efficient) and broadcasting
+        (faster for small batches) based on expected memory usage.
+        
+        Args:
+            src: Source node tensor (N,) on GPU
+            dst: Destination node tensor (N,) on GPU
+            edge_types: Edge type tensor (N,) on GPU
+            
+        Returns:
+            Tuple of (boolean mask of KDE-eligible edges, count of edges that could be reduced)
+        """
+        batch_size = len(src)
+        kde_size = len(self._kde_edge_tensor)
+        
+        # Use hash-based for large memory footprint (N × M > 10M elements)
+        # or always use hash-based as it's more memory-safe
+        if batch_size * kde_size > 10_000_000 or kde_size > 5000:
+            return self._find_kde_eligible_hash_based(src, dst, edge_types)
+        
+        if kde_size == 0:
+            return torch.zeros(batch_size, dtype=torch.bool, device=src.device), 0
+        
+        # Stack batch edges into (N, 3) tensor: [src, dst, edge_type]
+        batch_edges = torch.stack([src, dst, edge_types], dim=1)  # (N, 3)
+        
+        # Expand dimensions for broadcasting comparison:
+        # batch_edges: (N, 1, 3), kde_edges: (1, M, 3) -> comparison: (N, M, 3)
+        # Then check if all 3 values match (all() along dim=2) -> (N, M)
+        # Then check if any KDE edge matches (any() along dim=1) -> (N,)
+        batch_expanded = batch_edges.unsqueeze(1)  # (N, 1, 3)
+        kde_expanded = self._kde_edge_tensor.unsqueeze(0)  # (1, M, 3)
+        
+        # Element-wise comparison and reduce
+        matches = (batch_expanded == kde_expanded).all(dim=2)  # (N, M) - True where all 3 match
+        kde_eligible_mask = matches.any(dim=1)  # (N,) - True if any KDE edge matches
+        
+        # Count edges that could be reduced (KDE-eligible with count > 1)
+        edges_could_reduce = 0
+        if self._edge_counts_tensor is not None and kde_eligible_mask.any():
+            # For each KDE-eligible batch edge, find which KDE edge it matches
+            # and check if that edge has count > 1
+            # Cast bool to int for argmax (CUDA doesn't support argmax on bool)
+            kde_indices = matches.int().argmax(dim=1)  # (N,) - index of matching KDE edge (0 if no match)
+            kde_counts = self._edge_counts_tensor[kde_indices]  # (N,) - count for each match
+            can_reduce = kde_eligible_mask & (kde_counts > 1)
+            edges_could_reduce = can_reduce.sum().item()
+        
+        return kde_eligible_mask, edges_could_reduce
+
     def analyze_batch(self, batch) -> Dict[str, Any]:
         """
         Analyze a batch to determine KDE eligibility, taint ratio, and timestamp counts.
         
+        Uses GPU-accelerated vectorized operations when possible.
+        
         Args:
-            batch: Batch object with src, dst, edge_type attributes
+            batch: Batch object with original_edge_index, edge_type attributes
             
         Returns:
             Dict with analysis results including timestamp counts
         """
-        # Get source and destination node IDs
-        if hasattr(batch, 'src') and hasattr(batch, 'dst'):
-            src = batch.src.cpu().numpy() if isinstance(batch.src, torch.Tensor) else batch.src
-            dst = batch.dst.cpu().numpy() if isinstance(batch.dst, torch.Tensor) else batch.dst
+        # Determine device to use (prefer GPU if available)
+        device = self.device
+                
+        # Get source and destination node IDs from ORIGINAL edge_index (global node IDs)
+        # This is critical because KDE vectors use global node IDs, not reindexed local IDs
+        # Keep tensors on their original device for GPU-accelerated processing
+        if hasattr(batch, 'original_edge_index') and batch.original_edge_index is not None:
+            edge_index = batch.original_edge_index
+            if isinstance(edge_index, torch.Tensor):
+                src, dst = edge_index[0].to(device), edge_index[1].to(device)
+            else:
+                src = torch.tensor(edge_index[0], dtype=torch.long, device=device)
+                dst = torch.tensor(edge_index[1], dtype=torch.long, device=device)
+        elif hasattr(batch, 'src') and hasattr(batch, 'dst'):
+            if isinstance(batch.src, torch.Tensor):
+                src, dst = batch.src.to(device), batch.dst.to(device)
+            else:
+                src = torch.tensor(batch.src, dtype=torch.long, device=device)
+                dst = torch.tensor(batch.dst, dtype=torch.long, device=device)
         elif hasattr(batch, 'edge_index'):
-            edge_index = batch.edge_index.cpu().numpy() if isinstance(batch.edge_index, torch.Tensor) else batch.edge_index
-            src, dst = edge_index[0], edge_index[1]
+            edge_index = batch.edge_index
+            if isinstance(edge_index, torch.Tensor):
+                src, dst = edge_index[0].to(device), edge_index[1].to(device)
+            else:
+                src = torch.tensor(edge_index[0], dtype=torch.long, device=device)
+                dst = torch.tensor(edge_index[1], dtype=torch.long, device=device)
         else:
-            logger.warning("Batch has no src/dst or edge_index attributes")
+            logger.warning("Batch has no original_edge_index, src/dst or edge_index attributes")
             return {'total_edges': 0, 'kde_eligible': 0, 'non_kde': 0, 'taint_ratio': 0.0,
                     'edges_could_reduce': 0, 'total_timestamps': 0, 'kde_eligible_timestamps': 0}
         
-        # Get edge types
-        if hasattr(batch, 'edge_type') and batch.edge_type is not None:
+        # Get edge types - try multiple sources in order of preference:
+        # 1. msg tensor (RAW edge type embedded in the message for DARPA E3 datasets)
+        #    IMPORTANT: Use msg FIRST because batch.edge_type may be triplet-encoded (remapped)
+        #    but KDE vectors use RAW edge types from the original dataset
+        # 2. edge_type attribute (may be triplet-encoded, fallback only)
+        # 3. Default to 0
+        if hasattr(batch, 'msg') and batch.msg is not None:
+            # Extract edge types from msg tensor (for DARPA E3 datasets)
+            # The msg tensor contains: [src_type, src_emb, edge_type, dst_type, dst_emb]
+            try:
+                msg = batch.msg
+                if isinstance(msg, torch.Tensor):
+                    # Use default dimensions for DARPA E3: node_type_dim=8, edge_type_dim=16
+                    # return_tensor=True keeps it on GPU
+                    edge_types = extract_edge_type_from_msg(msg, node_type_dim=8, edge_type_dim=16, return_tensor=True)
+                    edge_types = edge_types.to(device)
+                else:
+                    edge_types = torch.zeros(len(src), dtype=torch.long, device=device)
+            except Exception as e:
+                logger.warning(f"Failed to extract edge types from msg tensor: {e}")
+                edge_types = torch.zeros(len(src), dtype=torch.long, device=device)
+        elif hasattr(batch, 'edge_type') and batch.edge_type is not None:
+            # Fallback to edge_type attribute (may be triplet-encoded)
             edge_type = batch.edge_type
             if isinstance(edge_type, torch.Tensor):
                 # edge_type is one-hot encoded, get the index
                 if edge_type.ndim == 2:
-                    edge_types = edge_type.max(dim=1).indices.cpu().numpy()
+                    edge_types = edge_type.max(dim=1).indices.to(device)
                 else:
-                    edge_types = edge_type.cpu().numpy()
+                    edge_types = edge_type.to(device)
             else:
-                edge_types = edge_type
+                edge_types = torch.tensor(edge_type, dtype=torch.long, device=device)
         else:
             # Default to edge type 0 if not available
-            edge_types = np.zeros(len(src), dtype=np.int64)
+            edge_types = torch.zeros(len(src), dtype=torch.long, device=device)
         
         total_edges = len(src)
-        kde_eligible = 0
-        edges_could_reduce = 0
         
-        # Track which edges are KDE-eligible for timestamp counting
-        kde_eligible_mask = []
-        
-        for s, d, et in zip(src, dst, edge_types):
-            edge_key = (int(s), int(d), int(et))
-            is_kde = edge_key in self.kde_eligible_edges
-            kde_eligible_mask.append(is_kde)
-            if is_kde:
-                kde_eligible += 1
-            
-            # Check if this edge could be reduced (KDE-eligible with count > 1)
-            # Only KDE-eligible edges with multiple occurrences are actually reduced
-            if is_kde:
-                count = self.edge_occurrence_counts.get(edge_key, 1)
-                if count > 1:
-                    edges_could_reduce += 1
+        # Use GPU-accelerated vectorized lookup
+        kde_eligible_mask, edges_could_reduce = self._find_kde_eligible_vectorized(src, dst, edge_types)
+        kde_eligible = kde_eligible_mask.sum().item()
         
         non_kde = total_edges - kde_eligible
         taint_ratio = kde_eligible / total_edges if total_edges > 0 else 0.0

@@ -25,6 +25,13 @@ try:
 except ImportError:
     KDE_DEBUG_AVAILABLE = False
 
+# Import batch timing (optional - won't fail if not available)
+try:
+    from pidsmaker.utils.batch_timing import BatchTimingTracker, BatchTimingResult, load_kde_eligible_edges
+    BATCH_TIMING_AVAILABLE = True
+except ImportError:
+    BATCH_TIMING_AVAILABLE = False
+
 
 @torch.no_grad()
 def test_edge_level(
@@ -287,6 +294,59 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
     if use_cuda:
         torch.cuda.reset_peak_memory_stats(device=device)
 
+    # Initialize batch timing tracker for inference
+    # Works for both KDE configs (kde_params) and baseline configs (batch_timing_vectors_dir)
+    batch_tracker = None
+    enable_batch_timing = getattr(cfg.training, 'enable_batch_timing', False)
+    
+    if BATCH_TIMING_AVAILABLE and enable_batch_timing:
+        try:
+            # Determine KDE vectors directory
+            # Priority: kde_params.kde_vectors_dir (if set) > batch_timing_vectors_dir (if baseline config)
+            kde_vectors_dir = None
+            config_type = "unknown"
+            
+            # Check if kde_params has actual values (not just None placeholders)
+            kde_params_kde_vectors_dir = getattr(cfg.kde_params, 'kde_vectors_dir', None) if hasattr(cfg, 'kde_params') else None
+            
+            if kde_params_kde_vectors_dir:
+                # KDE config with kde_vectors_dir set
+                kde_vectors_dir = kde_params_kde_vectors_dir
+                config_type = "KDE"
+            elif hasattr(cfg.training, 'batch_timing_vectors_dir') and cfg.training.batch_timing_vectors_dir:
+                # Baseline config - use batch_timing_vectors_dir for taint tracking only
+                kde_vectors_dir = cfg.training.batch_timing_vectors_dir
+                config_type = "baseline"
+            
+            if kde_vectors_dir:
+                # Load KDE edges from .pt file
+                kde_vectors_file = os.path.join(kde_vectors_dir, f"{cfg.dataset.name}_kde_vectors.pt")
+                
+                if os.path.exists(kde_vectors_file):
+                    kde_eligible_edges, edge_occurrence_counts = load_kde_eligible_edges(kde_vectors_file, device=device)
+                else:
+                    kde_eligible_edges = set()
+                    edge_occurrence_counts = {}
+                    log(f"KDE vectors file not found: {kde_vectors_file}")
+                
+                if kde_eligible_edges:
+                    # Store batch timing results under evaluation task path
+                    timing_output_dir = os.path.join(cfg.evaluation._task_path, "batch_timing")
+                    
+                    batch_tracker = BatchTimingTracker(
+                        kde_eligible_edges=kde_eligible_edges,
+                        edge_occurrence_counts=edge_occurrence_counts,
+                        output_dir=timing_output_dir,
+                        device=device,
+                    )
+                    log(f"Inference batch timing enabled ({config_type} config) with {len(kde_eligible_edges)} KDE-eligible edges")
+                    log(f"Inference batch timing results will be saved to: {timing_output_dir}")
+            else:
+                log(f"Inference batch timing enabled but no kde_vectors_dir configured")
+        except Exception as e:
+            log(f"Failed to initialize inference batch timing tracker: {e}")
+            batch_tracker = None
+
     val_score = 0.0
     peak_inference_cpu_mem = 0
     peak_inference_gpu_mem = 0
@@ -299,9 +359,14 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
         tracemalloc.start()
 
         all_losses = []
+        batch_idx = 0
         for graphs in dataset:
             for g in log_tqdm(graphs, desc=desc, logging=logging):
                 g.to(device=device)
+
+                # Start batch timing (for CUDA events)
+                if batch_tracker is not None:
+                    batch_tracker.start_batch()
 
                 s = time.time()
                 test_fn = test_node_level if cfg._is_node_level else test_edge_level
@@ -315,6 +380,50 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                 )
                 all_losses.extend(losses)
                 tpb.append(time.time() - s)
+
+                # End batch timing and record using GPU-optimized analyze_batch
+                if batch_tracker is not None:
+                    # Use GPU-accelerated analyze_batch() instead of CPU-based edge extraction
+                    # This keeps edge type extraction and KDE lookup on GPU
+                    analysis = batch_tracker.analyze_batch(g)
+                    
+                    # Calculate elapsed time using CUDA events
+                    if batch_tracker._use_cuda:
+                        batch_tracker._batch_cuda_end.record()
+                        torch.cuda.synchronize()
+                        forward_time_ms = batch_tracker._batch_cuda_start.elapsed_time(batch_tracker._batch_cuda_end)
+                    else:
+                        forward_time_ms = (time.perf_counter() - batch_tracker._batch_start_time) * 1000
+                    
+                    # Determine split from phase
+                    phase = f"inference_{split_name}"
+                    split = 'test'
+                    if 'val' in phase:
+                        split = 'val'
+                    elif 'train' in phase:
+                        split = 'train'
+                    
+                    # Create and store result (BatchTimingResult imported at top of file)
+                    result = BatchTimingResult(
+                        batch_id=batch_idx,
+                        phase=phase,
+                        epoch=-1,  # -1 indicates inference
+                        split=split,
+                        total_edges=analysis['total_edges'],
+                        kde_eligible_edges=analysis['kde_eligible'],
+                        non_kde_edges=analysis['non_kde'],
+                        taint_ratio=analysis['taint_ratio'],
+                        forward_time_ms=forward_time_ms,
+                        total_time_ms=forward_time_ms,
+                        edges_that_could_be_reduced=analysis['edges_could_reduce'],
+                        total_timestamps=analysis['total_timestamps'],
+                        kde_eligible_timestamps=analysis['kde_eligible_timestamps'],
+                    )
+                    
+                    batch_tracker.results.append(result)
+                    batch_tracker._update_summary(result)
+                    batch_tracker.batch_counter += 1
+                    batch_idx += 1
 
                 g.to("cpu")  # Move graph back to CPU to free GPU memory for next batch
                 if use_cuda:
@@ -357,6 +466,23 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                         log_kde_debug_stats(model, epoch, "testing")
                     except Exception as e:
                         log(f"KDE debug logging failed: {e}")
+
+    # Log batch timing summary for inference
+    if batch_tracker is not None:
+        try:
+            log("\n" + "=" * 60)
+            log(f"INFERENCE BATCH TIMING ANALYSIS (epoch {epoch})")
+            log("=" * 60)
+            batch_tracker.log_summary()
+            
+            # Save results with inference prefix
+            results_file = batch_tracker.save_results(f"inference_batch_timing_{cfg.dataset.name}_epoch{epoch}.json")
+            tainted_file = batch_tracker.save_detailed_tainted_report(f"inference_tainted_batches_{cfg.dataset.name}_epoch{epoch}.json")
+            
+            log(f"Inference batch timing results saved to {results_file}")
+            log(f"Inference tainted batches report saved to {tainted_file}")
+        except Exception as e:
+            log(f"Failed to save inference batch timing results: {e}")
 
     del model
 

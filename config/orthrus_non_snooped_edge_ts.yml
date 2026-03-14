@@ -12,6 +12,9 @@ batching:
     tgn_last_neighbor:
       fix_tgn_neighbor_loader: True
 training:
+  enable_batch_timing: true     # Enable timing instrumentation for KDE-eligible batches
+  batch_timing_vectors_dir: "kde_vectors"  # Path to KDE vectors for taint identification (baseline config)
+  batch_timing_min_occurrences: 10         # Min occurrences threshold for taint tracking
   lr: 0.0001
   node_out_dim: 128
   encoder:

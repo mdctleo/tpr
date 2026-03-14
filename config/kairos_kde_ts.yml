@@ -14,3 +14,8 @@ kde_params:
   time_dim: 50
   kde_vectors_dir: kde_vectors  # directory containing precomputed {DATASET}_kde_vectors.pt files
   use_precomputed: true          # use offline precomputed RKHS vectors (via kde_computation.py)
+
+# Batch timing parameters (for performance analysis of KDE-eligible edges)
+# This enables instrumentation to measure timing impact of tainted batches
+training:
+  enable_batch_timing: true      # Set to true to enable batch timing instrumentation

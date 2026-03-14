@@ -128,6 +128,50 @@ CONFIGS = [
         "artifact_dir": "artifacts",
         "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
     },
+    # --- orthrus_kde_diff (artifacts_reduced_diff/) ---
+    {
+        "config": "orthrus_kde_diff",
+        "dataset": "CLEARSCOPE_E3",
+        "epoch": 0,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7",
+    },
+    {
+        "config": "orthrus_kde_diff",
+        "dataset": "CADETS_E3",
+        "epoch": 11,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727",
+    },
+    {
+        "config": "orthrus_kde_diff",
+        "dataset": "THEIA_E3",
+        "epoch": 0,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457",
+    },
+    # --- kairos_kde_diff (artifacts_reduced_diff/) ---
+    {
+        "config": "kairos_kde_diff",
+        "dataset": "CLEARSCOPE_E3",
+        "epoch": 3,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e",
+    },
+    {
+        "config": "kairos_kde_diff",
+        "dataset": "CADETS_E3",
+        "epoch": 11,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269",
+    },
+    {
+        "config": "kairos_kde_diff",
+        "dataset": "THEIA_E3",
+        "epoch": 1,
+        "artifact_dir": "artifacts_reduced_diff",
+        "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
+    },
 ]
 
 

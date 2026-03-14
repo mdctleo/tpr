@@ -83,7 +83,8 @@ class PrecomputedKDETimeEncoder(nn.Module):
         self.rkhs_projection.reset_parameters()
         self.fallback_encoder.reset_parameters()
 
-    def forward(self, src: torch.Tensor, dst: torch.Tensor, t_diff: torch.Tensor) -> torch.Tensor:
+    def forward(self, src: torch.Tensor, dst: torch.Tensor, t_diff: torch.Tensor,
+                edge_type: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Forward pass using precomputed KDE vectors when available.
 
@@ -96,6 +97,7 @@ class PrecomputedKDETimeEncoder(nn.Module):
             src: Source node IDs (batch_size,)
             dst: Destination node IDs (batch_size,)
             t_diff: Time differences (batch_size,)
+            edge_type: Edge types (batch_size,) - optional, defaults to 0
 
         Returns:
             Time encodings of shape (batch_size, out_channels)
@@ -112,7 +114,8 @@ class PrecomputedKDETimeEncoder(nn.Module):
             self.rkhs_loader.set_device(device)
 
         # Batch lookup: get RKHS vectors and mask for which edges have precomputed vectors
-        rkhs_vectors, mask = self.rkhs_loader.get_vectors_batch(src, dst)
+        # Pass edge_type for 3-tuple lookup
+        rkhs_vectors, mask = self.rkhs_loader.get_vectors_batch(src, dst, edge_type)
 
         # Initialize output
         output = torch.zeros(batch_size, self.out_channels, device=device, dtype=torch.float32)
@@ -216,7 +219,7 @@ def patch_for_kde_time_encoding(cfg) -> bool:
 
 
 def _patch_tgn_encoder_forward():
-    """Patch TGN encoder forward method to pass src/dst to time encoder."""
+    """Patch TGN encoder forward method to pass src/dst/edge_type to time encoder."""
     try:
         import pidsmaker.encoders.tgn_encoder as tgn_encoder_module
         
@@ -224,7 +227,7 @@ def _patch_tgn_encoder_forward():
         original_forward = tgn_encoder_module.TGNEncoder.forward
         
         def patched_forward(self, batch, inference=False, **kwargs):
-            """Modified forward that passes src/dst to time encoder."""
+            """Modified forward that passes src/dst/edge_type to time encoder."""
             # Store in batch for time encoder access
             if hasattr(self, 'time_encoder') and hasattr(self.time_encoder, 'kde_encoder'):
                 # Derive src/dst from TGN edge index mapped to original node IDs.
@@ -234,13 +237,27 @@ def _patch_tgn_encoder_forward():
                 n_id_tgn = batch.n_id_tgn
                 tgn_src = n_id_tgn[edge_index_tgn[0]]
                 tgn_dst = n_id_tgn[edge_index_tgn[1]]
+                
+                # Get edge types for 3-tuple lookup
+                tgn_edge_type = None
+                if hasattr(batch, 'edge_type_tgn') and batch.edge_type_tgn is not None:
+                    tgn_edge_type = batch.edge_type_tgn
 
                 # Create a modified time encoding function
                 original_time_enc_forward = self.time_encoder.forward
                 
                 def kde_time_forward(t_diff):
-                    # Use the KDE encoder with src/dst information
-                    return self.time_encoder.kde_encoder(tgn_src, tgn_dst, t_diff)
+                    # The TGN memory module calls time_enc from _compute_msg with
+                    # concatenated messages that may have a different batch size than
+                    # tgn_src/tgn_dst (which come from batch.edge_index_tgn).
+                    # We must check for shape compatibility and fall back if mismatched.
+                    if t_diff.shape[0] != tgn_src.shape[0]:
+                        # Shape mismatch: this call is from TGN memory's _compute_msg
+                        # which concatenates messages from multiple nodes.
+                        # Use fallback encoder since we don't have the correct src/dst.
+                        return self.time_encoder.kde_encoder.fallback_encoder(t_diff.view(-1, 1)).cos()
+                    # Use the KDE encoder with src/dst/edge_type information
+                    return self.time_encoder.kde_encoder(tgn_src, tgn_dst, t_diff, tgn_edge_type)
                 
                 # Temporarily replace the forward method
                 self.time_encoder.forward = kde_time_forward

@@ -844,6 +844,9 @@ TASK_ARGS = {
         },
     },
     "training": {
+        "enable_batch_timing": Arg(bool, desc="Enable timing instrumentation for KDE-eligible batches."),
+        "batch_timing_vectors_dir": Arg(str, desc="Path to KDE vectors directory for batch timing (used by baseline configs without kde_params)."),
+        "batch_timing_min_occurrences": Arg(int, desc="Min occurrences threshold for taint tracking (default 10)."),
         "use_seed": Arg(bool),
         "deterministic": Arg(
             bool, desc="Whether to force PyTorch to use deterministic algorithms."
@@ -987,6 +990,7 @@ TASK_ARGS = {
         "time_dim": Arg(int, desc="Output dimension for time encoding."),
         "kde_vectors_dir": Arg(str, desc="Directory containing precomputed {DATASET}_kde_vectors.pt files."),
         "use_precomputed": Arg(bool, desc="Use offline precomputed RKHS vectors (via kde_computation.py)."),
+        "use_timestamp_diffs": Arg(bool, desc="Compute KDE on timestamp differences (inter-arrival times) instead of raw timestamps."),
     },
 }
 
