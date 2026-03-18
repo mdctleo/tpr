@@ -19,6 +19,8 @@ Epoch mappings:
   kairos:                      CLEARSCOPE=3, CADETS=11, THEIA=0
   orthrus_kde_diff:            CLEARSCOPE=0, CADETS=11, THEIA=0
   kairos_kde_diff:             CLEARSCOPE=3, CADETS=11, THEIA=1
+  orthrus_red:                 CLEARSCOPE=5, CADETS=11, THEIA=3
+  kairos_red:                  CLEARSCOPE=7, CADETS=1, THEIA=3
 
 ================================================================================
 ORTHRUS_NON_SNOOPED_EDGE_TS (3 runs) → artifacts/
@@ -189,6 +191,62 @@ KAIROS_KDE_DIFF (3 runs) → artifacts_reduced_diff/
     Result:   precision_recall_dir/result_model_epoch_1.pth
 
 ================================================================================
+ORTHRUS_RED (3 runs) → artifacts_reduced_all/
+================================================================================
+
+19. run-20260316_134801-u7cob73v
+    Config:   orthrus_red
+    Dataset:  CLEARSCOPE_E3
+    Epoch:    5
+    Hash:     293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/293471020f.../CLEARSCOPE_E3/
+    Result:   precision_recall_dir/result_model_epoch_5.pth
+
+20. run-20260316_172854-02r88xpn
+    Config:   orthrus_red
+    Dataset:  CADETS_E3
+    Epoch:    11
+    Hash:     970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/970c13085c.../CADETS_E3/
+    Result:   precision_recall_dir/result_model_epoch_11.pth
+
+21. run-20260316_213602-88xph2w7
+    Config:   orthrus_red
+    Dataset:  THEIA_E3
+    Epoch:    3
+    Hash:     9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/9364ddb2b1.../THEIA_E3/
+    Result:   precision_recall_dir/result_model_epoch_3.pth
+
+================================================================================
+KAIROS_RED (3 runs) → artifacts_reduced_all/
+================================================================================
+
+22. run-20260316_124659-7yzd45nk
+    Config:   kairos_red
+    Dataset:  CLEARSCOPE_E3
+    Epoch:    7
+    Hash:     2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/2551955c45.../CLEARSCOPE_E3/
+    Result:   precision_recall_dir/result_model_epoch_7.pth
+
+23. run-20260316_184756-qs0chxk7
+    Config:   kairos_red
+    Dataset:  CADETS_E3
+    Epoch:    1
+    Hash:     133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/133dbd81e3.../CADETS_E3/
+    Result:   precision_recall_dir/result_model_epoch_1.pth
+
+24. run-20260316_235613-6bdgeycj
+    Config:   kairos_red
+    Dataset:  THEIA_E3
+    Epoch:    3
+    Hash:     e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+    Path:     PIDSMaker/artifacts_reduced_all/evaluation/evaluation/e9f5191a26.../THEIA_E3/
+    Result:   precision_recall_dir/result_model_epoch_3.pth
+
+================================================================================
 QUICK REFERENCE TABLE
 ================================================================================
 
@@ -212,6 +270,12 @@ QUICK REFERENCE TABLE
 |16 | rgkv2akv        | 02:13     | kairos_kde_diff             | CLEARSCOPE_E3 | 293471020f   |   3   |
 |17 | qb4y0wmx        | 03:33     | kairos_kde_diff             | CADETS_E3     | 133dbd81e3   |  11   |
 |18 | 6embts1w        | 11:21     | kairos_kde_diff             | THEIA_E3      | e9f5191a26   |   1   |
+|19 | u7cob73v        | 13:48     | orthrus_red                 | CLEARSCOPE_E3 | 293471020f   |   5   |
+|20 | 02r88xpn        | 17:28     | orthrus_red                 | CADETS_E3     | 970c13085c   |  11   |
+|21 | 88xph2w7        | 21:36     | orthrus_red                 | THEIA_E3      | 9364ddb2b1   |   3   |
+|22 | 7yzd45nk        | 12:46     | kairos_red                  | CLEARSCOPE_E3 | 2551955c45   |   7   |
+|23 | qs0chxk7        | 18:47     | kairos_red                  | CADETS_E3     | 133dbd81e3   |   1   |
+|24 | 6bdgeycj        | 23:56     | kairos_red                  | THEIA_E3      | e9f5191a26   |   3   |
 
 ================================================================================
 NOTES

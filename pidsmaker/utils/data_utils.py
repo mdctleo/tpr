@@ -344,16 +344,45 @@ def build_edge_feats(fields, msg, edge_features, possible_triplets, num_edge_typ
 
 
 def get_full_data(datasets):
-    all_data = {
-        k: [] for k in ["msg", "t", "edge_type", "node_type_src", "node_type_dst", "src", "dst"]
-    }
+    # Base attributes always present
+    base_attrs = ["msg", "t", "edge_type", "node_type_src", "node_type_dst", "src", "dst"]
+    # Optional attributes (may be present in reduced graphs)
+    optional_attrs = ["edge_temporal_features"]
+    
+    all_data = {k: [] for k in base_attrs}
+    
+    # Check if optional attributes exist in first data sample
+    first_data = None
+    for dataset_group in datasets:
+        for dataset in dataset_group:
+            for data in dataset:
+                first_data = data
+                break
+            if first_data:
+                break
+        if first_data:
+            break
+    
+    # Add optional attributes if they exist
+    for attr in optional_attrs:
+        if first_data is not None and hasattr(first_data, attr) and getattr(first_data, attr) is not None:
+            all_data[attr] = []
+    
     for dataset_group in datasets:
         for dataset in dataset_group:
             for data in dataset:
                 for k in all_data:
-                    all_data[k].append(getattr(data, k))
+                    val = getattr(data, k, None)
+                    if val is not None:
+                        all_data[k].append(val)
 
-    full_data = Data(**{k: torch.cat(v) for k, v in all_data.items()})
+    # Only concatenate non-empty lists
+    full_data_dict = {}
+    for k, v in all_data.items():
+        if v:  # Only if list is non-empty
+            full_data_dict[k] = torch.cat(v)
+    
+    full_data = Data(**full_data_dict)
     return full_data
 
 
@@ -684,6 +713,10 @@ def compute_tgn_graphs(
                 batch.t_tgn = full_data.t[e_id.cpu()]
                 batch.node_type_tgn = node_type_cache[n_id]
                 batch.edge_type_tgn = full_data.edge_type[e_id.cpu()]
+                
+                # Propagate edge_temporal_features for reduced graphs
+                if hasattr(full_data, 'edge_temporal_features') and full_data.edge_temporal_features is not None:
+                    batch.edge_temporal_features_tgn = full_data.edge_temporal_features[e_id.cpu()]
 
                 batch = batch.to("cpu")
 

@@ -7,6 +7,7 @@ This module provides utilities to:
 3. Log comprehensive statistics about KDE usage during training and inference
 
 Usage:
+    # Full KDE-aware tracking:
     from pidsmaker.utils.batch_timing import BatchTimingTracker, TaintedBatchLogger
     
     tracker = BatchTimingTracker(kde_eligible_edges, min_occurrences=10)
@@ -14,6 +15,16 @@ Usage:
     for batch in batches:
         with tracker.time_batch(batch, phase='train'):
             output = model(batch)
+    
+    tracker.log_summary()
+    
+    # Simple timing (for reduced graphs, no KDE tracking):
+    from pidsmaker.utils.batch_timing import SimpleBatchTimingTracker
+    
+    tracker = SimpleBatchTimingTracker(output_dir=timing_dir)
+    
+    for batch in batches:
+        results, forward_time = tracker.time_forward(batch, forward_fn, phase='train')
     
     tracker.log_summary()
 """
@@ -883,3 +894,238 @@ def get_global_tracker() -> Optional[BatchTimingTracker]:
 def is_tracking_enabled() -> bool:
     """Check if global timing tracking is enabled."""
     return _global_timing_state.get('enabled', False)
+
+
+# =============================================================================
+# SimpleBatchTimingTracker - Lightweight timing for reduced graphs
+# =============================================================================
+
+@dataclass
+class SimpleTimingResult:
+    """Simple timing result for a single batch - no KDE tracking."""
+    batch_idx: int
+    phase: str  # 'train' or 'eval'
+    epoch: int
+    forward_time_ms: float
+    backward_time_ms: Optional[float] = None
+    num_edges: int = 0
+
+
+class SimpleBatchTimingTracker:
+    """
+    Simplified batch timing tracker for reduced graphs.
+    
+    Only tracks average timing for training and inference phases.
+    No KDE taint tracking, no edge eligibility analysis.
+    
+    Usage:
+        tracker = SimpleBatchTimingTracker(output_dir='timing_results')
+        
+        for batch in batches:
+            results, fwd_time = tracker.time_forward(batch, forward_fn, phase='train')
+        
+        tracker.log_summary()
+    """
+    
+    def __init__(self, output_dir: str = None, device: torch.device = None):
+        """
+        Initialize simple timing tracker.
+        
+        Args:
+            output_dir: Directory to save timing results (optional)
+            device: Device for synchronization (default: current CUDA device)
+        """
+        self.output_dir = output_dir
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        self.results: List[SimpleTimingResult] = []
+        self.current_epoch = 0
+        self.current_split = 'train'
+        self.batch_counter = 0
+        
+        # Track backward times separately
+        self._pending_backward_time: Optional[float] = None
+        
+        if self.output_dir:
+            os.makedirs(self.output_dir, exist_ok=True)
+    
+    def set_epoch(self, epoch: int):
+        """Set current epoch for tracking."""
+        self.current_epoch = epoch
+    
+    def set_split(self, split: str):
+        """Set current split (train/eval)."""
+        self.current_split = split
+    
+    def time_forward(self, batch, forward_fn, phase: str = 'train'):
+        """
+        Time a forward pass.
+        
+        Args:
+            batch: The batch to process
+            forward_fn: Callable that takes batch and returns results
+            phase: 'train' or 'eval'
+            
+        Returns:
+            Tuple of (results, forward_time_ms)
+        """
+        # Ensure GPU sync before timing
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(self.device)
+        
+        start_time = time.perf_counter()
+        
+        results = forward_fn(batch)
+        
+        # Sync again after forward
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(self.device)
+        
+        end_time = time.perf_counter()
+        forward_time_ms = (end_time - start_time) * 1000
+        
+        # Get number of edges if available
+        num_edges = 0
+        if hasattr(batch, 'edge_index'):
+            num_edges = batch.edge_index.shape[1] if batch.edge_index.dim() == 2 else len(batch.edge_index)
+        
+        # Create result
+        result = SimpleTimingResult(
+            batch_idx=self.batch_counter,
+            phase=phase,
+            epoch=self.current_epoch,
+            forward_time_ms=forward_time_ms,
+            num_edges=num_edges,
+        )
+        
+        self.results.append(result)
+        self.batch_counter += 1
+        
+        return results, forward_time_ms
+    
+    def record_backward_time(self, backward_time_ms: float):
+        """Record backward pass time for the most recent batch."""
+        if self.results:
+            self.results[-1].backward_time_ms = backward_time_ms
+    
+    def get_timing_stats(self) -> Dict[str, Any]:
+        """
+        Compute average timing statistics.
+        
+        Returns:
+            Dict with timing statistics for train and eval phases
+        """
+        stats = {
+            'train': {'count': 0, 'forward_times_ms': [], 'backward_times_ms': [], 'total_edges': 0},
+            'eval': {'count': 0, 'forward_times_ms': [], 'backward_times_ms': [], 'total_edges': 0},
+        }
+        
+        for r in self.results:
+            phase = r.phase
+            if phase in stats:
+                stats[phase]['count'] += 1
+                stats[phase]['forward_times_ms'].append(r.forward_time_ms)
+                if r.backward_time_ms is not None:
+                    stats[phase]['backward_times_ms'].append(r.backward_time_ms)
+                stats[phase]['total_edges'] += r.num_edges
+        
+        # Compute averages
+        result = {}
+        for phase, data in stats.items():
+            if data['count'] > 0:
+                fwd_times = data['forward_times_ms']
+                bwd_times = data['backward_times_ms']
+                
+                result[phase] = {
+                    'batch_count': data['count'],
+                    'total_edges': data['total_edges'],
+                    'avg_forward_time_ms': np.mean(fwd_times) if fwd_times else 0,
+                    'std_forward_time_ms': np.std(fwd_times) if fwd_times else 0,
+                    'min_forward_time_ms': np.min(fwd_times) if fwd_times else 0,
+                    'max_forward_time_ms': np.max(fwd_times) if fwd_times else 0,
+                    'avg_backward_time_ms': np.mean(bwd_times) if bwd_times else 0,
+                    'std_backward_time_ms': np.std(bwd_times) if bwd_times else 0,
+                }
+        
+        return result
+    
+    def log_summary(self):
+        """Log timing summary to logger."""
+        stats = self.get_timing_stats()
+        
+        logger.info("=" * 60)
+        logger.info("SIMPLE BATCH TIMING SUMMARY (Reduced Graphs)")
+        logger.info("=" * 60)
+        
+        for phase in ['train', 'eval']:
+            if phase in stats:
+                s = stats[phase]
+                logger.info(f"\n{phase.upper()} Phase:")
+                logger.info(f"  Total batches: {s['batch_count']}")
+                logger.info(f"  Total edges: {s['total_edges']}")
+                logger.info(f"  Average forward time: {s['avg_forward_time_ms']:.3f} ms (std: {s['std_forward_time_ms']:.3f})")
+                logger.info(f"  Forward time range: [{s['min_forward_time_ms']:.3f}, {s['max_forward_time_ms']:.3f}] ms")
+                if s['avg_backward_time_ms'] > 0:
+                    logger.info(f"  Average backward time: {s['avg_backward_time_ms']:.3f} ms (std: {s['std_backward_time_ms']:.3f})")
+        
+        logger.info("=" * 60)
+    
+    def save_results(self, filename: str = "simple_batch_timing.json") -> Optional[str]:
+        """
+        Save timing results to JSON file.
+        
+        Args:
+            filename: Output filename
+            
+        Returns:
+            Path to saved file, or None if output_dir not set
+        """
+        if not self.output_dir:
+            return None
+        
+        filepath = os.path.join(self.output_dir, filename)
+        
+        stats = self.get_timing_stats()
+        
+        output = {
+            'summary': stats,
+            'detailed_results': [
+                {
+                    'batch_idx': r.batch_idx,
+                    'phase': r.phase,
+                    'epoch': r.epoch,
+                    'forward_time_ms': r.forward_time_ms,
+                    'backward_time_ms': r.backward_time_ms,
+                    'num_edges': r.num_edges,
+                }
+                for r in self.results
+            ]
+        }
+        
+        with open(filepath, 'w') as f:
+            json.dump(output, f, indent=2)
+        
+        logger.info(f"Saved simple batch timing results to: {filepath}")
+        return filepath
+
+
+def init_simple_tracker(output_dir: str = None, device: torch.device = None) -> SimpleBatchTimingTracker:
+    """
+    Initialize a global simple batch timing tracker.
+    
+    Args:
+        output_dir: Directory to save timing results
+        device: CUDA device for timing
+        
+    Returns:
+        SimpleBatchTimingTracker instance
+    """
+    tracker = SimpleBatchTimingTracker(
+        output_dir=output_dir,
+        device=device,
+    )
+    
+    _global_timing_state['enabled'] = True
+    _global_timing_state['tracker'] = tracker
+    
+    return tracker

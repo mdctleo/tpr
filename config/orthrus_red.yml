@@ -1,0 +1,21 @@
+# Orthrus with Reduced Graphs and Temporal Summary Features
+# Based on orthrus_non_snooped_edge_ts.yml
+# 
+# Uses reduced graphs where ALL duplicate edges are collapsed.
+# Each edge has temporal summary features: (first_ts_norm, last_ts_norm, count_norm)
+# These features replace the standard time encoding.
+#
+# Requires: python scripts/reduce_graphs_all.py <dataset> --artifacts_dir ./artifacts
+# This creates artifacts_reduced_all/ with reduced graphs
+
+_include_yml: orthrus_non_snooped_edge_ts
+
+# Enable reduced graph mode - uses collapsed edges with temporal summary features
+reduced_params:
+  use_reduced_graphs: true  # Flag to enable reduced temporal encoding
+  feature_dim: 3            # (first_ts_norm, last_ts_norm, count_norm)
+  time_dim: 50              # Output dimension after projection
+
+# Enable simple batch timing (no KDE taint tracking - just avg timing)
+training:
+  enable_batch_timing: true

@@ -981,6 +981,13 @@ TASK_ARGS = {
         },
     },
     "postprocessing": {},
+    # Reduced graph parameters for temporal summary features
+    # When enabled, uses collapsed edges with (first_ts_norm, last_ts_norm, count_norm)
+    "reduced_params": {
+        "use_reduced_graphs": Arg(bool, desc="Enable reduced temporal encoding with collapsed edges."),
+        "feature_dim": Arg(int, desc="Number of temporal summary features (default: 3 for first_ts, last_ts, count)."),
+        "time_dim": Arg(int, desc="Output dimension after projection."),
+    },
     # KDE (Kernel Density Estimation) parameters for time encoding
     "kde_params": {
         "rkhs_dim": Arg(int, desc="Dimension of RKHS vector representation for KDE time encoding."),

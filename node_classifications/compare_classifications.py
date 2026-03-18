@@ -38,6 +38,28 @@ SCENARIOS = [
         "A": "kairos_kde_diff",
         "B": "kairos",
     },
+    # Reduced graph (temporal summary features) comparisons
+    {
+        "name": "orthrus_red_vs_orthrus_non_snooped_edge_ts",
+        "A": "orthrus_red",
+        "B": "orthrus_non_snooped_edge_ts",
+    },
+    {
+        "name": "kairos_red_vs_kairos",
+        "A": "kairos_red",
+        "B": "kairos",
+    },
+    # Reduced vs KDE diff comparisons
+    {
+        "name": "orthrus_red_vs_orthrus_kde_diff",
+        "A": "orthrus_red",
+        "B": "orthrus_kde_diff",
+    },
+    {
+        "name": "kairos_red_vs_kairos_kde_diff",
+        "A": "kairos_red",
+        "B": "kairos_kde_diff",
+    },
 ]
 
 DATASETS = ["CLEARSCOPE_E3", "CADETS_E3", "THEIA_E3"]
@@ -136,6 +158,17 @@ def main():
 
         for dataset in DATASETS:
             print(f"\n  Dataset: {dataset}")
+            
+            # Check if both configs have data for this dataset
+            mal_a_path = os.path.join(BASE_DIR, config_a, dataset, "malicious_above_threshold.csv")
+            mal_b_path = os.path.join(BASE_DIR, config_b, dataset, "malicious_above_threshold.csv")
+            
+            if not os.path.exists(mal_a_path):
+                print(f"    SKIPPED: Config A ({config_a}) not found for {dataset}")
+                continue
+            if not os.path.exists(mal_b_path):
+                print(f"    SKIPPED: Config B ({config_b}) not found for {dataset}")
+                continue
 
             result = compare_configs(config_a, config_b, dataset)
 

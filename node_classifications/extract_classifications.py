@@ -20,112 +20,77 @@ import torch
 import json
 import os
 import csv
+import glob
 
 BASE_DIR = "/scratch/asawan15/PIDSMaker"
-ARTIFACTS_BASE = os.path.join(BASE_DIR, "artifacts_base_and_kde_ts")
 OUTPUT_DIR = os.path.join(BASE_DIR, "node_classifications")
 
 # ============================================================
-# Config mappings using the artifacts_base_and_kde_ts folder
-# Path structure: evaluation/evaluation/{hash}/{dataset}/precision_recall_dir/
+# Artifacts directories for different config types
+# ============================================================
+ARTIFACTS_DIRS = {
+    # Original KDE configs (artifacts_base_and_kde_ts)
+    "artifacts_base_and_kde_ts": os.path.join(BASE_DIR, "artifacts_base_and_kde_ts"),
+    # KDE diff configs (timestamp differences)
+    "artifacts_reduced_diff": os.path.join(BASE_DIR, "artifacts_reduced_diff"),
+    # Reduced graphs (temporal summary features)
+    "artifacts_reduced_all": os.path.join(BASE_DIR, "artifacts_reduced_all"),
+}
+
+# ============================================================
+# Static config mappings (known hash values)
+# For new runs, use auto-discovery mode with discover_runs()
 # ============================================================
 
-# artifacts_base_and_kde_ts/artifacts/: orthrus_non_snooped_edge_ts and kairos
-# artifacts_base_and_kde_ts/artifacts_reduced/: orthrus_edge_kde_ts and kairos_kde_ts
-
-# Epoch mappings (from user specification):
-# orthrus_non_snooped_edge_ts: clearscope=0, cadets=5, theia=1
-# orthrus_edge_kde_ts: clearscope=0, cadets=7, theia=3
-# kairos_kde_ts: clearscope=1, cadets=5, theia=1
-# kairos: clearscope=3, cadets=11, theia=0
-
-CONFIGS = [
-    # --- orthrus_non_snooped_edge_ts (artifacts/) ---
+STATIC_CONFIGS = [
+    # --- orthrus_non_snooped_edge_ts (artifacts_base_and_kde_ts/artifacts/) ---
     {
         "config": "orthrus_non_snooped_edge_ts",
         "dataset": "CLEARSCOPE_E3",
         "epoch": 0,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e",
     },
     {
         "config": "orthrus_non_snooped_edge_ts",
         "dataset": "CADETS_E3",
         "epoch": 5,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727",
     },
     {
         "config": "orthrus_non_snooped_edge_ts",
         "dataset": "THEIA_E3",
         "epoch": 1,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457",
     },
-    # --- orthrus_edge_kde_ts (artifacts_reduced/) ---
-    {
-        "config": "orthrus_edge_kde_ts",
-        "dataset": "CLEARSCOPE_E3",
-        "epoch": 0,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7",
-    },
-    {
-        "config": "orthrus_edge_kde_ts",
-        "dataset": "CADETS_E3",
-        "epoch": 7,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727",
-    },
-    {
-        "config": "orthrus_edge_kde_ts",
-        "dataset": "THEIA_E3",
-        "epoch": 3,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457",
-    },
-    # --- kairos_kde_ts (artifacts_reduced/) ---
-    {
-        "config": "kairos_kde_ts",
-        "dataset": "CLEARSCOPE_E3",
-        "epoch": 1,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e",
-    },
-    {
-        "config": "kairos_kde_ts",
-        "dataset": "CADETS_E3",
-        "epoch": 5,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269",
-    },
-    {
-        "config": "kairos_kde_ts",
-        "dataset": "THEIA_E3",
-        "epoch": 1,
-        "artifact_dir": "artifacts_reduced",
-        "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
-    },
-    # --- kairos (artifacts/) ---
+    # --- kairos (artifacts_base_and_kde_ts/artifacts/) ---
     {
         "config": "kairos",
         "dataset": "CLEARSCOPE_E3",
         "epoch": 3,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7",
     },
     {
         "config": "kairos",
         "dataset": "CADETS_E3",
         "epoch": 11,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269",
     },
     {
         "config": "kairos",
         "dataset": "THEIA_E3",
         "epoch": 0,
-        "artifact_dir": "artifacts",
+        "artifacts_base": "artifacts_base_and_kde_ts",
+        "artifact_subdir": "artifacts",
         "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
     },
     # --- orthrus_kde_diff (artifacts_reduced_diff/) ---
@@ -133,21 +98,24 @@ CONFIGS = [
         "config": "orthrus_kde_diff",
         "dataset": "CLEARSCOPE_E3",
         "epoch": 0,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
         "hash": "2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7",
     },
     {
         "config": "orthrus_kde_diff",
         "dataset": "CADETS_E3",
         "epoch": 11,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
         "hash": "970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727",
     },
     {
         "config": "orthrus_kde_diff",
         "dataset": "THEIA_E3",
         "epoch": 0,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
         "hash": "9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457",
     },
     # --- kairos_kde_diff (artifacts_reduced_diff/) ---
@@ -155,24 +123,185 @@ CONFIGS = [
         "config": "kairos_kde_diff",
         "dataset": "CLEARSCOPE_E3",
         "epoch": 3,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
         "hash": "293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e",
     },
     {
         "config": "kairos_kde_diff",
         "dataset": "CADETS_E3",
         "epoch": 11,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
         "hash": "133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269",
     },
     {
         "config": "kairos_kde_diff",
         "dataset": "THEIA_E3",
         "epoch": 1,
-        "artifact_dir": "artifacts_reduced_diff",
+        "artifacts_base": "artifacts_reduced_diff",
+        "artifact_subdir": "",
+        "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
+    },
+    # --- orthrus_red (artifacts_reduced_all/) ---
+    {
+        "config": "orthrus_red",
+        "dataset": "CLEARSCOPE_E3",
+        "epoch": 5,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
+        "hash": "293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e",
+    },
+    {
+        "config": "orthrus_red",
+        "dataset": "CADETS_E3",
+        "epoch": 11,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
+        "hash": "970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727",
+    },
+    {
+        "config": "orthrus_red",
+        "dataset": "THEIA_E3",
+        "epoch": 3,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
+        "hash": "9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457",
+    },
+    # --- kairos_red (artifacts_reduced_all/) ---
+    {
+        "config": "kairos_red",
+        "dataset": "CLEARSCOPE_E3",
+        "epoch": 7,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
+        "hash": "2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7",
+    },
+    {
+        "config": "kairos_red",
+        "dataset": "CADETS_E3",
+        "epoch": 1,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
+        "hash": "133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269",
+    },
+    {
+        "config": "kairos_red",
+        "dataset": "THEIA_E3",
+        "epoch": 3,
+        "artifacts_base": "artifacts_reduced_all",
+        "artifact_subdir": "",
         "hash": "e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5",
     },
 ]
+
+# ============================================================
+# Auto-discovery for reduced graph runs (orthrus_red, kairos_red)
+# ============================================================
+
+def discover_reduced_runs(artifacts_base_dir, config_patterns=None):
+    """
+    Auto-discover evaluation runs in an artifacts directory.
+    
+    Looks for evaluation results at:
+    {artifacts_base_dir}/evaluation/evaluation/{hash}/{dataset}/precision_recall_dir/
+    
+    Args:
+        artifacts_base_dir: Base directory to search
+        config_patterns: List of config name patterns to match (optional)
+        
+    Returns:
+        List of config dicts with discovered runs
+    """
+    configs = []
+    eval_base = os.path.join(artifacts_base_dir, "evaluation", "evaluation")
+    
+    if not os.path.exists(eval_base):
+        print(f"  No evaluation directory found: {eval_base}")
+        return configs
+    
+    # List hash directories
+    for hash_dir in os.listdir(eval_base):
+        hash_path = os.path.join(eval_base, hash_dir)
+        if not os.path.isdir(hash_path):
+            continue
+        
+        # List dataset directories within hash
+        for dataset in os.listdir(hash_path):
+            dataset_path = os.path.join(hash_path, dataset)
+            pr_dir = os.path.join(dataset_path, "precision_recall_dir")
+            
+            if not os.path.exists(pr_dir):
+                continue
+            
+            # Find result files and get best epoch
+            result_files = glob.glob(os.path.join(pr_dir, "result_model_epoch_*.pth"))
+            if not result_files:
+                continue
+            
+            # Get best epoch from stats files (look for best F1 score)
+            best_epoch = find_best_epoch(pr_dir)
+            
+            # Try to determine config name from run metadata
+            config_name = determine_config_name(hash_path, dataset)
+            
+            configs.append({
+                "config": config_name,
+                "dataset": dataset,
+                "epoch": best_epoch,
+                "artifacts_base": os.path.basename(artifacts_base_dir),
+                "artifact_subdir": "",
+                "hash": hash_dir,
+                "auto_discovered": True,
+            })
+    
+    return configs
+
+
+def find_best_epoch(pr_dir):
+    """Find the epoch with best F1 score in the precision_recall_dir."""
+    best_epoch = 0
+    best_f1 = -1
+    
+    stats_files = glob.glob(os.path.join(pr_dir, "stats_model_epoch_*.pth"))
+    
+    for stats_file in stats_files:
+        try:
+            epoch = int(stats_file.split("epoch_")[1].split(".pth")[0])
+            stats = torch.load(stats_file, map_location="cpu")
+            f1 = stats.get('fscore', 0)
+            
+            if f1 > best_f1:
+                best_f1 = f1
+                best_epoch = epoch
+        except Exception:
+            continue
+    
+    return best_epoch
+
+
+def determine_config_name(hash_path, dataset):
+    """Try to determine config name from run metadata or path."""
+    # Try to read from a config.json or similar metadata file
+    for metadata_file in ["config.json", "run_config.json", "metadata.json"]:
+        meta_path = os.path.join(hash_path, dataset, metadata_file)
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                if "config" in meta:
+                    return meta["config"]
+            except Exception:
+                pass
+    
+    # Fallback: try to infer from parent directory structure
+    parent = os.path.dirname(os.path.dirname(os.path.dirname(hash_path)))
+    parent_name = os.path.basename(parent)
+    
+    if "reduced_all" in parent_name:
+        return "reduced_graph"  # Will need manual mapping later
+    
+    return "unknown"
 
 
 def extract_node_classifications(result_path):
@@ -219,41 +348,109 @@ def write_csv(filepath, nodes, category_label):
 
 
 def main():
+    """
+    Main function to extract node classifications.
+    
+    Processes both static configs and auto-discovers runs from artifacts_reduced_all.
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Extract node classifications from evaluation results")
+    parser.add_argument("--discover", action="store_true", 
+                        help="Auto-discover runs from artifacts_reduced_all")
+    parser.add_argument("--config-name", type=str, default=None,
+                        help="Config name to assign to discovered runs (e.g., 'orthrus_red', 'kairos_red')")
+    parser.add_argument("--artifacts-dir", type=str, default=None,
+                        help="Artifacts directory to search for runs")
+    args = parser.parse_args()
+    
     overall_summary = {}
+    
+    # Determine which configs to process
+    configs_to_process = list(STATIC_CONFIGS)
+    
+    # Auto-discover runs from artifacts_reduced_all if requested
+    if args.discover or args.artifacts_dir:
+        artifacts_dir = args.artifacts_dir or os.path.join(BASE_DIR, "artifacts_reduced_all")
+        print(f"\n{'='*80}")
+        print(f"Auto-discovering runs from: {artifacts_dir}")
+        print(f"{'='*80}")
+        
+        discovered = discover_reduced_runs(artifacts_dir)
+        
+        # Assign config name if provided
+        if args.config_name:
+            for cfg in discovered:
+                cfg["config"] = args.config_name
+        
+        print(f"  Discovered {len(discovered)} runs")
+        for cfg in discovered:
+            print(f"    - {cfg['config']}/{cfg['dataset']} (epoch={cfg['epoch']}, hash={cfg['hash'][:12]}...)")
+        
+        configs_to_process.extend(discovered)
 
-    for cfg in CONFIGS:
+    for cfg in configs_to_process:
         config_name = cfg["config"]
         dataset = cfg["dataset"]
         epoch = cfg["epoch"]
-        artifact_dir = cfg["artifact_dir"]
         hash_dir = cfg["hash"]
-
-        result_path = os.path.join(
-            ARTIFACTS_BASE,
-            artifact_dir,
-            "evaluation",
-            "evaluation",
-            hash_dir,
-            dataset,
-            "precision_recall_dir",
-            f"result_model_epoch_{epoch}.pth",
-        )
-
-        # Also load the stats file for threshold info
-        stats_path = os.path.join(
-            ARTIFACTS_BASE,
-            artifact_dir,
-            "evaluation",
-            "evaluation",
-            hash_dir,
-            dataset,
-            "precision_recall_dir",
-            f"stats_model_epoch_{epoch}.pth",
-        )
+        
+        # Build result path based on config structure
+        artifacts_base = cfg.get("artifacts_base", "artifacts_reduced_all")
+        artifact_subdir = cfg.get("artifact_subdir", "")
+        
+        # Determine base path
+        if artifacts_base in ARTIFACTS_DIRS:
+            base_path = ARTIFACTS_DIRS[artifacts_base]
+        else:
+            base_path = os.path.join(BASE_DIR, artifacts_base)
+        
+        if artifact_subdir:
+            result_path = os.path.join(
+                base_path,
+                artifact_subdir,
+                "evaluation",
+                "evaluation",
+                hash_dir,
+                dataset,
+                "precision_recall_dir",
+                f"result_model_epoch_{epoch}.pth",
+            )
+            stats_path = os.path.join(
+                base_path,
+                artifact_subdir,
+                "evaluation",
+                "evaluation",
+                hash_dir,
+                dataset,
+                "precision_recall_dir",
+                f"stats_model_epoch_{epoch}.pth",
+            )
+            artifact_display = f"{artifacts_base}/{artifact_subdir}"
+        else:
+            result_path = os.path.join(
+                base_path,
+                "evaluation",
+                "evaluation",
+                hash_dir,
+                dataset,
+                "precision_recall_dir",
+                f"result_model_epoch_{epoch}.pth",
+            )
+            stats_path = os.path.join(
+                base_path,
+                "evaluation",
+                "evaluation",
+                hash_dir,
+                dataset,
+                "precision_recall_dir",
+                f"stats_model_epoch_{epoch}.pth",
+            )
+            artifact_display = artifacts_base
 
         print(f"\n{'='*80}")
         print(f"Config: {config_name} | Dataset: {dataset} | Epoch: {epoch}")
-        print(f"Artifact dir: {artifact_dir}/evaluation/evaluation/{hash_dir[:12]}...")
+        print(f"Artifact dir: {artifact_display}/evaluation/evaluation/{hash_dir[:12]}...")
         print(f"Result file: {result_path}")
 
         if not os.path.exists(result_path):
@@ -265,11 +462,8 @@ def main():
         )
 
         # Load stats for threshold
-        threshold = None
         if os.path.exists(stats_path):
             stats = torch.load(stats_path, map_location="cpu")
-            # The threshold is implicitly embedded in the y_hat predictions
-            # Print key stats
             print(f"  Stats: TP={stats.get('tp',0)}, FP={stats.get('fp',0)}, "
                   f"TN={stats.get('tn',0)}, FN={stats.get('fn',0)}")
             print(f"  Precision={stats.get('precision',0):.5f}, "
@@ -324,11 +518,12 @@ def main():
             "config": config_name,
             "dataset": dataset,
             "epoch": epoch,
-            "artifact_dir": artifact_dir,
+            "artifacts_base": artifacts_base,
+            "artifact_subdir": artifact_subdir,
             "hash": hash_dir,
             "TP_node_ids": sorted([n["node_id"] for n in tp_nodes]),
             "FP_node_ids": sorted([n["node_id"] for n in fp_nodes]),
-            "TN_node_ids_count": len(tn_nodes),  # Too many to list individually
+            "TN_node_ids_count": len(tn_nodes),
             "FN_node_ids": sorted([n["node_id"] for n in fn_nodes]),
             "malicious_node_ids": sorted([n["node_id"] for n in tp_nodes + fp_nodes]),
             "counts": {
@@ -351,7 +546,7 @@ def main():
             f.write(f"Config:       {config_name}\n")
             f.write(f"Dataset:      {dataset}\n")
             f.write(f"Epoch:        {epoch}\n")
-            f.write(f"Artifact Dir: {artifact_dir}/evaluation/evaluation/{hash_dir[:12]}...\n")
+            f.write(f"Artifact Dir: {artifact_display}/evaluation/evaluation/{hash_dir[:12]}...\n")
             f.write(f"\n")
             f.write(f"MALICIOUS (Above Threshold) - y_hat=1:\n")
             f.write(f"  True Positives (TP):  {len(tp_nodes):>8d} nodes\n")

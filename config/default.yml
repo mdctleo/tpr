@@ -6,6 +6,13 @@ transformation:
     num_unauthorized_file_access: 20
     process_selection_method: random # TODO: try new methods
 
+# Reduced graph parameters for temporal summary features
+# When enabled, uses collapsed edges with (first_ts_norm, last_ts_norm, count_norm)
+reduced_params:
+  use_reduced_graphs: false     # Enable reduced temporal encoding
+  feature_dim: 3                # Number of temporal summary features
+  time_dim: 50                  # Output dimension after projection
+
 # KDE (Kernel Density Estimation) parameters for time encoding
 # These are only used when kde_params is explicitly enabled in a config
 kde_params:
