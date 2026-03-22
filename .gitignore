@@ -187,3 +187,9 @@ postgres_data
 nltk_data
 
 .claude
+
+reduction/datasets/
+reduction/kde_visualizations/
+*.out
+*.sub
+*.pkl
