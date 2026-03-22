@@ -1,0 +1,26 @@
+# Orthrus with KDE time encoding using timestamp DIFFERENCES
+# Based on orthrus_non_snooped_edge_ts.yml with KDE parameters added
+# 
+# Key difference from orthrus_edge_kde_ts: computes KDE on inter-arrival times
+# (differences between consecutive timestamps) rather than raw timestamps.
+# This captures the temporal pattern/frequency of edge occurrences.
+
+_include_yml: orthrus_non_snooped_edge_ts
+
+# KDE-specific parameters for timestamp difference encoding
+# Note: Uses fallback (base Orthrus encoder) for edges with < 10 timestamps
+# KDE is only used for edges with >= 10 timestamps (which gives >= 9 diffs)
+kde_params:
+  rkhs_dim: 20
+  min_occurrences: 10
+  bandwidth: 'scott'
+  n_quadrature_points: 10
+  time_dim: 50
+  kde_vectors_dir: kde_vectors_diff  # directory containing precomputed {DATASET}_kde_vectors.pt files (diff-based)
+  use_precomputed: true               # use offline precomputed RKHS vectors (via kde_computation.py)
+  use_timestamp_diffs: true           # compute KDE on timestamp differences, not raw timestamps
+
+# Batch timing parameters (for performance analysis of KDE-eligible edges)
+# This enables instrumentation to measure timing impact of tainted batches
+training:
+  enable_batch_timing: true      # Set to true to enable batch timing instrumentation

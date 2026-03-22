@@ -1,0 +1,18 @@
+{
+  "dataset": "THEIA_E3",
+  "min_occurrences": 10,
+  "rkhs_dim": 20,
+  "n_quadrature_points": 10,
+  "bandwidth": "scott",
+  "num_edges": 13929,
+  "timestamp": "2026-02-25T12:50:50.173593",
+  "type": "timestamp_differences",
+  "statistics": {
+    "num_edges_with_vectors": 13929,
+    "vector_norm_mean": 543284086218.6453,
+    "vector_norm_std": 4125836843471.6743,
+    "vector_norm_min": 685400.0625,
+    "vector_norm_max": 52780152651776.0,
+    "total_size_mb": 4.814223289489746
+  }
+}
