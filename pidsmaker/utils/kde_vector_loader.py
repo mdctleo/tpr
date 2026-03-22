@@ -1,0 +1,233 @@
+"""
+RKHS Vector Loader for KAIROS-KDE
+
+This module provides utilities to load precomputed RKHS vectors from disk
+and make them available during training with O(1) lookup.
+
+Edge keys are 3-tuples: (src, dst, edge_type)
+"""
+
+import logging
+import os
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+import torch
+
+logger = logging.getLogger(__name__)
+
+
+class RKHSVectorLoader:
+    """
+    Loads and manages precomputed RKHS vectors for efficient lookup during training.
+    """
+    
+    def __init__(self, dataset_name: str, kde_vectors_dir: str = "kde_vectors"):
+        """
+        Initialize the RKHS vector loader.
+        
+        Args:
+            dataset_name: Name of the dataset (e.g., CLEARSCOPE_E3)
+            kde_vectors_dir: Directory containing precomputed vectors
+        """
+        self.dataset_name = dataset_name
+        self.kde_vectors_dir = kde_vectors_dir
+        self.edge_vectors: Dict[Tuple[int, int, int], torch.Tensor] = {}
+        self.metadata: Dict = {}
+        self.device = None
+        
+        self._load_vectors()
+    
+    def _load_vectors(self):
+        """Load RKHS vectors from disk."""
+        vector_file = os.path.join(self.kde_vectors_dir, f"{self.dataset_name}_kde_vectors.pt")
+        
+        if not os.path.exists(vector_file):
+            logger.warning(f"RKHS vector file not found: {vector_file}")
+            logger.warning("KDE time encoding will use fallback encoder for all edges")
+            return
+        
+        logger.info(f"Loading precomputed RKHS vectors from {vector_file}...")
+        
+        try:
+            data = torch.load(vector_file, map_location='cpu')
+            self.edge_vectors = data['edge_vectors']
+            self.metadata = data['metadata']
+            
+            logger.info(f"Loaded {len(self.edge_vectors)} RKHS vectors")
+            logger.info(f"Metadata: {self.metadata}")
+            
+            # Normalize vectors for training stability
+            self._normalize_vectors()
+            
+            # Compute memory usage
+            total_size_mb = sum(v.numel() * v.element_size() for v in self.edge_vectors.values()) / (1024 * 1024)
+            logger.info(f"RKHS vectors memory usage: {total_size_mb:.2f} MB")
+            
+        except Exception as e:
+            logger.error(f"Failed to load RKHS vectors: {e}")
+            self.edge_vectors = {}
+            self.metadata = {}
+    
+    def _normalize_vectors(self):
+        """
+        Z-score normalize RKHS vectors per feature dimension.
+        
+        Raw RKHS vectors can span 18+ orders of magnitude (e.g., nanosecond timestamps
+        at ~1e18 vs near-zero KDE weighted values). This normalization ensures all
+        features contribute equally to the trainable rkhs_projection layer.
+        """
+        if len(self.edge_vectors) == 0:
+            return
+        
+        import torch
+        
+        # Stack all vectors into a matrix [N, rkhs_dim]
+        all_keys = list(self.edge_vectors.keys())
+        all_vecs = torch.stack([self.edge_vectors[k] for k in all_keys])
+        
+        # Compute per-feature mean and std
+        self._vec_mean = all_vecs.mean(dim=0)
+        self._vec_std = all_vecs.std(dim=0)
+        # Prevent division by zero for constant features
+        self._vec_std[self._vec_std < 1e-8] = 1.0
+        
+        # Apply normalization in-place
+        for k in all_keys:
+            self.edge_vectors[k] = (self.edge_vectors[k] - self._vec_mean) / self._vec_std
+        
+        logger.info(f"Normalized RKHS vectors: mean_norm={self._vec_mean.norm():.4e}, std_range=[{self._vec_std.min():.4e}, {self._vec_std.max():.4e}]")
+
+    def get_vector(self, src: int, dst: int, edge_type: int = 0) -> Optional[torch.Tensor]:
+        """
+        Get RKHS vector for an edge.
+        
+        Args:
+            src: Source node ID
+            dst: Destination node ID
+            edge_type: Edge type (default 0)
+            
+        Returns:
+            RKHS vector if available, None otherwise
+        """
+        edge_key = (src, dst, edge_type)
+        # Vectors already on correct device (moved in set_device)
+        return self.edge_vectors.get(edge_key)
+    
+    def get_vectors_batch(self, src_batch: torch.Tensor, dst_batch: torch.Tensor, 
+                           edge_type_batch: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get RKHS vectors for a batch of edges.
+        
+        Args:
+            src_batch: Batch of source node IDs
+            dst_batch: Batch of destination node IDs
+            edge_type_batch: Batch of edge types (if None, defaults to 0)
+            
+        Returns:
+            Tuple of:
+                - Tensor of shape (batch_size, rkhs_dim) with RKHS vectors
+                - Boolean mask indicating which edges have precomputed vectors
+        """
+        batch_size = src_batch.shape[0]
+        rkhs_dim = self.metadata.get('rkhs_dim', 20)
+        device = src_batch.device
+        
+        # Initialize output tensor
+        vectors = torch.zeros(batch_size, rkhs_dim, device=device, dtype=torch.float32)
+        mask = torch.zeros(batch_size, dtype=torch.bool, device=device)
+        
+        # Convert to CPU for dictionary lookup
+        src_cpu = src_batch.cpu().numpy()
+        dst_cpu = dst_batch.cpu().numpy()
+        
+        # Handle edge types
+        if edge_type_batch is not None:
+            if isinstance(edge_type_batch, torch.Tensor):
+                if edge_type_batch.ndim == 2:
+                    # One-hot encoded, get indices
+                    edge_types_cpu = edge_type_batch.max(dim=1).indices.cpu().numpy()
+                else:
+                    edge_types_cpu = edge_type_batch.cpu().numpy()
+            else:
+                edge_types_cpu = edge_type_batch
+        else:
+            edge_types_cpu = np.zeros(batch_size, dtype=np.int64)
+        
+        # Lookup vectors using 3-tuple keys
+        for i in range(batch_size):
+            edge_key = (int(src_cpu[i]), int(dst_cpu[i]), int(edge_types_cpu[i]))
+            vector = self.edge_vectors.get(edge_key)
+            
+            if vector is not None:
+                # Vectors already on correct device (moved in set_device)
+                vectors[i] = vector
+                mask[i] = True
+        
+        return vectors, mask
+    
+    def set_device(self, device: torch.device):
+        """Set the device for RKHS vectors and move all vectors to that device."""
+        if self.device == device:
+            return  # Already on correct device
+        
+        self.device = device
+        logger.info(f"Moving {len(self.edge_vectors)} RKHS vectors to device: {device}")
+        
+        # Move all vectors to device once (keeps them in memory for the entire run)
+        for edge_key in self.edge_vectors:
+            self.edge_vectors[edge_key] = self.edge_vectors[edge_key].to(device)
+        
+        logger.info(f"RKHS vectors moved to device: {device}")
+    
+    def has_vector(self, src: int, dst: int, edge_type: int = 0) -> bool:
+        """Check if RKHS vector exists for an edge."""
+        return (src, dst, edge_type) in self.edge_vectors
+    
+    def get_coverage_stats(self) -> Dict:
+        """Get statistics about RKHS vector coverage."""
+        return {
+            'num_edges_with_vectors': len(self.edge_vectors),
+            'rkhs_dim': self.metadata.get('rkhs_dim', 20),
+            'min_occurrences': self.metadata.get('min_occurrences', 10),
+            'dataset': self.dataset_name
+        }
+    
+    def __len__(self) -> int:
+        """Return number of edges with precomputed vectors."""
+        return len(self.edge_vectors)
+    
+    def __contains__(self, edge_key: Tuple[int, int, int]) -> bool:
+        """Check if edge has precomputed vector."""
+        return edge_key in self.edge_vectors
+
+
+# Global loader instance (singleton pattern)
+_global_loader: Optional[RKHSVectorLoader] = None
+
+
+def get_rkhs_loader(dataset_name: Optional[str] = None, kde_vectors_dir: str = "kde_vectors") -> RKHSVectorLoader:
+    """
+    Get or create the global RKHS vector loader.
+    
+    Args:
+        dataset_name: Name of the dataset (required on first call)
+        kde_vectors_dir: Directory containing precomputed vectors
+        
+    Returns:
+        RKHSVectorLoader instance
+    """
+    global _global_loader
+    
+    if _global_loader is None:
+        if dataset_name is None:
+            raise ValueError("dataset_name must be provided on first call to get_rkhs_loader()")
+        _global_loader = RKHSVectorLoader(dataset_name, kde_vectors_dir)
+    
+    return _global_loader
+
+
+def reset_rkhs_loader():
+    """Reset the global RKHS loader (useful for testing)."""
+    global _global_loader
+    _global_loader = None

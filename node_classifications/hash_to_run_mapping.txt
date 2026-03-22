@@ -1,0 +1,225 @@
+Hash-to-Run Mapping for artifacts_base_and_kde_ts
+==================================================
+
+Each hash corresponds to a specific config + dataset combination.
+Note: The same hash can appear in both artifacts/ and artifacts_reduced/ for different configs,
+because the hash is derived from dataset-level parameters, not the config name.
+
+Base path: /scratch/asawan15/PIDSMaker/artifacts_base_and_kde_ts/
+
+Results are in: evaluation/evaluation/{hash}/{dataset}/precision_recall_dir/result_model_epoch_{epoch}.pth
+
+================================================================================
+artifacts/ directory (orthrus_non_snooped_edge_ts + kairos)
+================================================================================
+
+--- orthrus_non_snooped_edge_ts ---
+Epochs: CLEARSCOPE=0, CADETS=5, THEIA=1
+
+Hash: 293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+  Run:          orthrus_non_snooped_edge_ts  CLEARSCOPE_E3
+  Epoch used:   0
+  Path:         artifacts/evaluation/evaluation/293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+Hash: 970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+  Run:          orthrus_non_snooped_edge_ts  CADETS_E3
+  Epoch used:   5
+  Path:         artifacts/evaluation/evaluation/970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_5.pth
+
+Hash: 9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+  Run:          orthrus_non_snooped_edge_ts  THEIA_E3
+  Epoch used:   1
+  Path:         artifacts/evaluation/evaluation/9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+--- kairos ---
+Epochs: CLEARSCOPE=3, CADETS=11, THEIA=0
+
+Hash: 2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+  Run:          kairos  CLEARSCOPE_E3
+  Epoch used:   3
+  Path:         artifacts/evaluation/evaluation/2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_3.pth
+
+Hash: 133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+  Run:          kairos  CADETS_E3
+  Epoch used:   11
+  Path:         artifacts/evaluation/evaluation/133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_11.pth
+
+Hash: e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+  Run:          kairos  THEIA_E3
+  Epoch used:   0
+  Path:         artifacts/evaluation/evaluation/e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+================================================================================
+artifacts_reduced/ directory (orthrus_edge_kde_ts + kairos_kde_ts)
+================================================================================
+
+--- orthrus_edge_kde_ts ---
+Epochs: CLEARSCOPE=0, CADETS=7, THEIA=3
+
+Hash: 2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+  Run:          orthrus_edge_kde_ts  CLEARSCOPE_E3
+  Epoch used:   0
+  Path:         artifacts_reduced/evaluation/evaluation/2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+Hash: 970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+  Run:          orthrus_edge_kde_ts  CADETS_E3
+  Epoch used:   7
+  Path:         artifacts_reduced/evaluation/evaluation/970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_7.pth
+
+Hash: 9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+  Run:          orthrus_edge_kde_ts  THEIA_E3
+  Epoch used:   3
+  Path:         artifacts_reduced/evaluation/evaluation/9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_3.pth
+
+--- kairos_kde_ts ---
+Epochs: CLEARSCOPE=1, CADETS=5, THEIA=1
+
+Hash: 293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+  Run:          kairos_kde_ts  CLEARSCOPE_E3
+  Epoch used:   1
+  Path:         artifacts_reduced/evaluation/evaluation/293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+Hash: 133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+  Run:          kairos_kde_ts  CADETS_E3
+  Epoch used:   5
+  Path:         artifacts_reduced/evaluation/evaluation/133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_5.pth
+
+Hash: e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+  Run:          kairos_kde_ts  THEIA_E3
+  Epoch used:   1
+  Path:         artifacts_reduced/evaluation/evaluation/e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+================================================================================
+artifacts_reduced_diff/ directory (orthrus_kde_diff + kairos_kde_diff)
+================================================================================
+
+--- orthrus_kde_diff ---
+Epochs: CLEARSCOPE=1, CADETS=0, THEIA=0
+
+Hash: 2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+  Run:          orthrus_kde_diff  CLEARSCOPE_E3
+  Epoch used:   1
+  Path:         artifacts_reduced_diff/evaluation/evaluation/2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+Hash: 970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+  Run:          orthrus_kde_diff  CADETS_E3
+  Epoch used:   0
+  Path:         artifacts_reduced_diff/evaluation/evaluation/970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+Hash: 9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+  Run:          orthrus_kde_diff  THEIA_E3
+  Epoch used:   0
+  Path:         artifacts_reduced_diff/evaluation/evaluation/9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+--- kairos_kde_diff ---
+Epochs: CLEARSCOPE=1, CADETS=7, THEIA=0
+
+Hash: 293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+  Run:          kairos_kde_diff  CLEARSCOPE_E3
+  Epoch used:   1
+  Path:         artifacts_reduced_diff/evaluation/evaluation/293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+Hash: 133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+  Run:          kairos_kde_diff  CADETS_E3
+  Epoch used:   7
+  Path:         artifacts_reduced_diff/evaluation/evaluation/133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_7.pth
+
+Hash: e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+  Run:          kairos_kde_diff  THEIA_E3
+  Epoch used:   0
+  Path:         artifacts_reduced_diff/evaluation/evaluation/e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_0.pth
+
+================================================================================
+artifacts_reduced_all/ directory (orthrus_red + kairos_red)
+================================================================================
+
+--- orthrus_red ---
+Epochs: CLEARSCOPE=5, CADETS=11, THEIA=3
+
+Hash: 293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e
+  Run:          orthrus_red  CLEARSCOPE_E3
+  Epoch used:   5
+  Path:         artifacts_reduced_all/evaluation/evaluation/293471020f6a7101d4266ecc1efeaa9d64e8ec367dcaa7635659a7dd4af2302e/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_5.pth
+
+Hash: 970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727
+  Run:          orthrus_red  CADETS_E3
+  Epoch used:   11
+  Path:         artifacts_reduced_all/evaluation/evaluation/970c13085c1d6feabe4790a3ec192e29b1b4742bcde5bf3199c192962c698727/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_11.pth
+
+Hash: 9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457
+  Run:          orthrus_red  THEIA_E3
+  Epoch used:   3
+  Path:         artifacts_reduced_all/evaluation/evaluation/9364ddb2b1b64ea9dcf4f3b818defba39706f6bbdaf4ef6e07ad9df66813e457/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_3.pth
+
+--- kairos_red ---
+Epochs: CLEARSCOPE=7, CADETS=1, THEIA=3
+
+Hash: 2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7
+  Run:          kairos_red  CLEARSCOPE_E3
+  Epoch used:   7
+  Path:         artifacts_reduced_all/evaluation/evaluation/2551955c45d630a0e97731a9ff890bc791f9b8e1f92f6eb467a175847dc281a7/CLEARSCOPE_E3/
+  Result:       precision_recall_dir/result_model_epoch_7.pth
+
+Hash: 133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269
+  Run:          kairos_red  CADETS_E3
+  Epoch used:   1
+  Path:         artifacts_reduced_all/evaluation/evaluation/133dbd81e39cf6fd439cc60da9f2fbea820e60e2a7629a91b7a02719415c6269/CADETS_E3/
+  Result:       precision_recall_dir/result_model_epoch_1.pth
+
+Hash: e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5
+  Run:          kairos_red  THEIA_E3
+  Epoch used:   3
+  Path:         artifacts_reduced_all/evaluation/evaluation/e9f5191a26589f5ad9ac4b4b5c7d717f1789d1281a50d41e38f9c516a10f08b5/THEIA_E3/
+  Result:       precision_recall_dir/result_model_epoch_3.pth
+
+================================================================================
+Quick Reference Table
+================================================================================
+
+Hash (short)   | artifact_dir          | Config                          | Dataset        | Epoch
+---------------|-----------------------|---------------------------------|----------------|------
+293471020f...  | artifacts             | orthrus_non_snooped_edge_ts     | CLEARSCOPE_E3  |  0
+970c13085c...  | artifacts             | orthrus_non_snooped_edge_ts     | CADETS_E3      |  5
+9364ddb2b1...  | artifacts             | orthrus_non_snooped_edge_ts     | THEIA_E3       |  1
+2551955c45...  | artifacts             | kairos                          | CLEARSCOPE_E3  |  3
+133dbd81e3...  | artifacts             | kairos                          | CADETS_E3      | 11
+e9f5191a26...  | artifacts             | kairos                          | THEIA_E3       |  0
+2551955c45...  | artifacts_reduced     | orthrus_edge_kde_ts             | CLEARSCOPE_E3  |  0
+970c13085c...  | artifacts_reduced     | orthrus_edge_kde_ts             | CADETS_E3      |  7
+9364ddb2b1...  | artifacts_reduced     | orthrus_edge_kde_ts             | THEIA_E3       |  3
+293471020f...  | artifacts_reduced     | kairos_kde_ts                   | CLEARSCOPE_E3  |  1
+133dbd81e3...  | artifacts_reduced     | kairos_kde_ts                   | CADETS_E3      |  5
+e9f5191a26...  | artifacts_reduced     | kairos_kde_ts                   | THEIA_E3       |  1
+2551955c45...  | artifacts_reduced_diff| orthrus_kde_diff                | CLEARSCOPE_E3  |  1
+970c13085c...  | artifacts_reduced_diff| orthrus_kde_diff                | CADETS_E3      |  0
+9364ddb2b1...  | artifacts_reduced_diff| orthrus_kde_diff                | THEIA_E3       |  0
+293471020f...  | artifacts_reduced_diff| kairos_kde_diff                 | CLEARSCOPE_E3  |  1
+133dbd81e3...  | artifacts_reduced_diff| kairos_kde_diff                 | CADETS_E3      |  7
+e9f5191a26...  | artifacts_reduced_diff| kairos_kde_diff                 | THEIA_E3       |  0
+293471020f...  | artifacts_reduced_all | orthrus_red                     | CLEARSCOPE_E3  |  5
+970c13085c...  | artifacts_reduced_all | orthrus_red                     | CADETS_E3      | 11
+9364ddb2b1...  | artifacts_reduced_all | orthrus_red                     | THEIA_E3       |  3
+2551955c45...  | artifacts_reduced_all | kairos_red                      | CLEARSCOPE_E3  |  7
+133dbd81e3...  | artifacts_reduced_all | kairos_red                      | CADETS_E3      |  1
+e9f5191a26...  | artifacts_reduced_all | kairos_red                      | THEIA_E3       |  3
