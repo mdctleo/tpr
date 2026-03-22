@@ -35,7 +35,33 @@ class EnhancedEdge():
 
     def fit(self, timestamps, args, data_weights=None):
         self.count += len(timestamps)
-        if args.use_dbstream:
+        if args.method == "scan_gmm":
+            kde = self.fit_kde(timestamps, data_weights)
+            model = self.fitted_kde_to_gmm_bic_simple(kde, x_min=np.min(timestamps), x_max=np.max(timestamps), k_max=args.K, grid_size=args.grid_size, total_count=args.total_count, grid_padding=0.10)
+
+            means, covs, weights = model.means_.flatten(), model.covariances_.flatten(), model.weights_
+            means, covs, weights = truncate_clusters(means=means, variances=covs, weights=weights)
+
+            self.means = means
+            self.covariances = covs
+            self.weights = weights
+            self.num_clusters = len(self.means)
+            self.kde = model  # Store the model for later use
+
+        elif args.method == "dpgmm":
+            kde = self.fit_kde(timestamps, data_weights)
+            model = self.fitted_kde_to_bgmm_simple(kde, x_min=np.min(timestamps), x_max=np.max(timestamps), n_components=args.K, grid_size=args.grid_size, total_count=args.total_count, grid_padding=0.10)
+
+            means, covs, weights = model.means_.flatten(), model.covariances_.flatten(), model.weights_
+            means, covs, weights = truncate_clusters(means=means, variances=covs, weights=weights)
+
+            self.means = means
+            self.covariances = covs
+            self.weights = weights
+            self.num_clusters = len(self.means)
+            self.kde = model  # Store the model for later use
+
+        elif args.use_dbstream:
             bandwidth = self.sheather_jones_bandwidth(timestamps)
             print("in kde edge fit with dbstream", flush=True)
             print("max timestamp: ", np.max(timestamps), flush=True)
