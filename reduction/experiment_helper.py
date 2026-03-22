@@ -7,6 +7,7 @@ import glob
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 import pickle
+import os
 
 def reduce_helper(csv_path, target_nodes, args):
     
@@ -70,7 +71,37 @@ def reduce_helper(csv_path, target_nodes, args):
     print(f"{technique_name} average kl divergence: ", average_kl_divergence, flush=True)
     print(f"{technique_name} average num clusters: ", average_num_clusters, flush=True)
 
+def reduce(dataset_name, max_components=100, grid_points=400, total_count=2000, method="scan_gmm"):
+        
+    dataset_path = f"./datasets/{dataset_name}/{method}.pkl"
+    if os.path.exists(dataset_path):
+        print(f"Loading preprocessed dataset from {dataset_path}", flush=True)
+        with open(dataset_path, "rb") as f:
+            enhanced_edges = pickle.load(f)
+    
+        return enhanced_edges
+    
+    dataset_path = f"./datasets/{dataset_name}/*.csv"
 
+    args = {}
+    args.sys_call = True
+    args.method = method
+    args.zero_center = False
+    args.detection = False
+    args.visualize = False
+    args.K = max_components
+    args.grid_points = grid_points
+    args.total_count = total_count
+
+    merged_edges, scalers = prep_data(dataset_path, None, args)
+    enhanced_edges = fit_data(merged_edges, args)
+
+    save_path = f"./datasets/{dataset_name}/{method}.pkl"
+    edges_dict = enhanced_edges_to_pickle_dict(save_path, enhanced_edges, scalers)
+    
+    return edges_dict
+
+    
 def prep_data(csv_path, target_nodes, args):
     files = []
     if type(csv_path) is list:
@@ -153,6 +184,8 @@ def enhanced_edges_to_pickle_dict(name, enhanced_edges, scalers):
     
     with open(f"{name}", "wb") as f:
         pickle.dump(edge_dict, f)
+
+    return edge_dict
         
 def split_data(merged_edges, k=20000):
     """
