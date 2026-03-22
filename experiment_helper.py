@@ -6,6 +6,7 @@ from datetime import datetime
 import glob
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
+import pickle
 
 def reduce_helper(csv_path, target_nodes, args):
     
@@ -83,9 +84,24 @@ def prep_data(csv_path, target_nodes, args):
     print("Total edge count: ", total_edge_count, flush=True) 
     print("Number of merged edges: ", len(merged_edges), flush=True)
 
-    merged_edges = filter_edges_by_count(merged_edges, 200)
+    merged_edges = filter_edges_by_count(merged_edges, min_count=200)
 
-    scalers = []
+    edge_counts = np.array([len(edge) for edge in merged_edges.values()])
+    if edge_counts.size > 0:
+        avg_edge_count_pre_filter = float(np.mean(edge_counts))
+        median_edge_count_pre_filter = float(np.median(edge_counts))
+        min_edge_count_pre_filter = int(np.min(edge_counts))
+        max_edge_count_pre_filter = int(np.max(edge_counts))
+    else:
+        avg_edge_count_pre_filter = median_edge_count_pre_filter = 0.0
+        min_edge_count_pre_filter = max_edge_count_pre_filter = 0
+
+    print(f"Edge count statistics before filtering: avg={avg_edge_count_pre_filter}, median={median_edge_count_pre_filter}, min={min_edge_count_pre_filter}, max={max_edge_count_pre_filter}", flush=True)
+    
+
+    # merged_edges = filter_edges_by_count(merged_edges, min_count=avg_edge_count_pre_filter)
+
+    scalers = {}
     for key, timestamps in merged_edges.items():
         # sort the data
         merged_edges[key] = sorted(timestamps)
@@ -93,7 +109,7 @@ def prep_data(csv_path, target_nodes, args):
         
         scaler = MinMaxScaler()
         merged_edges[key] = scaler.fit_transform(merged_edges[key])
-        scalers.append(scaler)
+        scalers[key] = scaler
         # print("max after scaler: ", np.max(merged_edges[key]), flush=True)
         # print("min after scaler: ", np.min(merged_edges[key]), flush=True)
 
@@ -123,6 +139,21 @@ def fit_data(merged_edges, args):
 
     return enhanced_edges
 
+def enhanced_edges_to_pickle_dict(name, enhanced_edges, scalers):
+    edge_dict = {}
+    for key, enhanced_edge in enhanced_edges.items():
+        edge_dict[key] = {
+            "kde": enhanced_edge.kde,
+            "scaler": scalers[key],
+            "means": enhanced_edge.means if enhanced_edge.means is not None else [],
+            "covariances": enhanced_edge.covariances if enhanced_edge.covariances is not None else [],
+            "weights": enhanced_edge.weights if enhanced_edge.weights is not None else [],
+            "num_clusters": enhanced_edge.num_clusters if enhanced_edge.num_clusters is not None else 0
+        }
+    
+    with open(f"{name}", "wb") as f:
+        pickle.dump(edge_dict, f)
+        
 def split_data(merged_edges, k=20000):
     """
     Split the values of each dictionary item into chunks of approximately K data points,

@@ -26,8 +26,14 @@ def create_and_merge_graph(file_paths, target_nodes, args):
 
     for file_path in file_paths:
         for df in pd.read_csv(file_path, chunksize=100000):
-            df['node1_id'] = df['subjectname'] + "_" + df['subject_type']
-            df['node2_id'] = df['objectname'] + "_" + df['object_type']
+            df['node1_id'] = df['subjectname']
+            if 'subject_type' in df.columns:
+                df['node1_id'] = df['node1_id'] + "_" + df['subject_type']
+
+            df['node2_id'] = df['objectname']
+            if 'object_type' in df.columns:
+                df['node2_id'] = df['node2_id'] + "_" + df['object_type']
+
         
             total_edge_count += len(df)
             unique_nodes.update(df['node1_id'].unique())
@@ -47,9 +53,6 @@ def create_and_merge_graph(file_paths, target_nodes, args):
                 df['syscall'] = "same"
             else:
                 df['timestamp'] = df['timestamp'] / 1e9
-
-            df['node1_id'] = df['subjectname'] + "_" + df['subject_type']
-            df['node2_id'] = df['objectname'] + "_" + df['object_type']
 
             # print("finished creating node ids!", flush=True)
 

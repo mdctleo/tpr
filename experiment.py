@@ -8,7 +8,7 @@ from create_graph_memory import merge_two_merged_edges, separate_two_merged_edge
 from datetime import datetime
 from online_detection import train_recency_detector, detect_recency_detector
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from experiment_helper import reduce_helper, split_data, prep_data, process_splits, evaluate_enhancement, split_data_cic_ids, fit_data, set_adversarial_edge_timestamps
+from experiment_helper import enhanced_edges_to_pickle_dict, reduce_helper, split_data, prep_data, process_splits, evaluate_enhancement, split_data_cic_ids, fit_data, set_adversarial_edge_timestamps
 import random
 import torch
 import pyro
@@ -83,6 +83,22 @@ if __name__ == "__main__":
         merged_edges, _ = prep_data("./datasets/E5_Trace/*.csv", None, args)
         enhanced_edges = fit_data(merged_edges, args)
         evaluate_enhancement("./datasets/E5_Trace/*.csv", enhanced_edges, merged_edges, args)
+
+    elif args.experiment_type == "reduction_dpgmm_e3_theia":
+
+        args.sys_call = True
+        args.use_dpgmm = True
+        args.zero_center = False
+        args.detection = False
+        args.visualize = True
+        args.K = 100
+
+        merged_edges, scalers = prep_data("./datasets/e3_theia/*.csv", None, args)
+        enhanced_edges = fit_data(merged_edges, args)
+        enhanced_edges_to_pickle_dict("e3_theia_dpgmm_enhanced_edges_dpgmm.pkl", enhanced_edges, scalers)
+
+        evaluate_enhancement("./datasets/e3_theia/*.csv", enhanced_edges, merged_edges, args)
+
 
 
     elif args.experiment_type == "reduction_dbstream_e5_trace":
@@ -166,7 +182,7 @@ if __name__ == "__main__":
 
         key = list(enhanced_edges.keys())[0]
         timestamps = merged_edges[key]
-        scaler = scalers[0]
+        scaler = scalers[key]
 
         evaluate_enhancement("./datasets/cic-ids-2017/Monday-WorkingHours.csv", enhanced_edges, merged_edges, args)
         enhanced_edges[key].visualize_distribution(name="monday_temporal_pattern", timestamps=timestamps, scaler=scaler)

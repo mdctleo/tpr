@@ -1,7 +1,6 @@
 import math, torch, pyro, pyro.distributions as dist
 from torch.distributions import constraints
-from pyro.optim import ExponentialLR, Adam
-from pyro.optim.clipped_adam import ClippedAdam
+from pyro.optim import ExponentialLR, Adam, ClippedAdam
 from sklearn.metrics import pairwise_distances
 
 from pyro.infer import SVI, TraceEnum_ELBO
@@ -9,6 +8,42 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
+
+def truncate_clusters(means, variances, weights, threshold=0.99):
+    """
+    Generalized function to truncate clusters based on cumulative weights.
+    
+    Args:
+        means (np.ndarray): Array of cluster means.
+        variances (np.ndarray): Array of cluster variances.
+        weights (np.ndarray): Array of cluster weights.
+        threshold (float): Cumulative weight threshold (e.g., 0.99 for 99%).
+    
+    Returns:
+        truncated_means (np.ndarray): Truncated cluster means.
+        truncated_stds (np.ndarray): Truncated cluster standard deviations.
+        truncated_weights (np.ndarray): Truncated cluster weights.
+    """
+    # Normalize weights to ensure they sum to 1
+    weights = weights / weights.sum()
+
+    # Sort clusters by descending weight
+    idx = np.argsort(weights)[::-1]
+    w_sorted = weights[idx]
+    m_sorted = means[idx]
+    std_sorted = np.sqrt(variances[idx])
+
+    # Compute cumulative weights and find the cutoff
+    cumulative = np.cumsum(w_sorted)
+    cut = np.searchsorted(cumulative, threshold) + 1  # Include clusters up to the threshold
+
+    # Truncate and renormalize weights
+    truncated_means = m_sorted[:cut]
+    truncated_stds = std_sorted[:cut]
+    truncated_weights = w_sorted[:cut]
+    truncated_weights = truncated_weights / truncated_weights.sum()  # Renormalize
+
+    return truncated_means, truncated_stds, truncated_weights
 
 
 def expected_log_sticks(alpha, beta):
@@ -94,8 +129,8 @@ class PyroDPGMM():
                 adjusted_variance = max(adjusted_variance, 1e-6)
                 variances.append(adjusted_variance)
 
-            print("Initial means:", means, flush=True)
-            print("Initial variances:", variances, flush=True)
+            # print("Initial means:", means, flush=True)
+            # print("Initial variances:", variances, flush=True)
 
             # Sklearn's KMeans rarely drops clusters unless there are heavy duplicates,
             # but we keep your safety check just in case.
@@ -110,8 +145,8 @@ class PyroDPGMM():
         self.init_variances = torch.tensor(variances, device=self.device, dtype=torch.float32)
 
         # Debugging: Print initial and final variances
-        print("Final variances after filtering and adjustments:", self.init_variances, flush=True)
-        print("Final number of clusters (K):", self.K, flush=True)
+        # print("Final variances after filtering and adjustments:", self.init_variances, flush=True)
+        # print("Final number of clusters (K):", self.K, flush=True)
 
 
     def model(self, data, weights=None):
@@ -155,11 +190,11 @@ class PyroDPGMM():
                         constraint=constraints.greater_than(1e-6))
 
         # Prevent infinite variance in the InverseGamma distribution
-        a_q = pyro.param("a_q", torch.full((K,), max(float(self.alpha0), 1.05), device=self.device),
-                        constraint=constraints.greater_than(1.01))
+        a_q = pyro.param("a_q", torch.full((K,), max(float(self.alpha0), 3.0), device=self.device),
+                        constraint=constraints.greater_than(1.5))
 
-        b_q = pyro.param("b_q", self.init_variances.clone().clamp(min=1e-6), 
-                        constraint=constraints.greater_than(1e-8))
+        b_q = pyro.param("b_q", self.init_variances.clone().clamp(min=1e-4), 
+                        constraint=constraints.greater_than(1e-5))
         
         
         with pyro.plate("components", K):
@@ -204,7 +239,9 @@ class PyroDPGMM():
         print("K after KMeans initialization:", self.K, flush=True)
 
         pyro.clear_param_store()  # Clear previous parameters
-        optimizer = Adam({"lr": 0.001})
+        optimizer = ClippedAdam(
+            {"lr": 0.001, "clip_norm": 10.0}
+        )
         svi = SVI(self.model, self.guide, optimizer, loss=TraceEnum_ELBO())
 
         print("Number of data points: ", len(data), flush=True)
@@ -262,7 +299,10 @@ class PyroDPGMM():
         if best_params is not None:
             pyro.get_param_store().set_state(best_params)
 
-        truncated_means, truncated_stds, truncated_weights = self.truncate_clusters()
+        with torch.no_grad():
+            means, variances, weights = self.get_params()
+            truncated_means, truncated_stds, truncated_weights = truncate_clusters(means=means, variances=variances, weights=weights)
+
         return truncated_means, truncated_stds, truncated_weights
     
     def get_params(self):

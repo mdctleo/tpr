@@ -2,8 +2,9 @@ import numpy as np
 from tqdm import tqdm 
 from dbstream import OnlineDBStreamClustering, tune_dbstream_params
 from kmeans import KMeansElbow
-from pyro_dpgmm import PyroDPGMM
+from pyro_dpgmm import PyroDPGMM, truncate_clusters
 from sklearn.neighbors import KernelDensity
+from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
 from scipy.stats import norm
 from scipy.integrate import quad
 from sklearn.utils import resample
@@ -27,6 +28,7 @@ class EnhancedEdge():
         self.covariances = None
         self.weights = None
         self.kde = None
+        self.reduction_threshold = 2000
 
         self.global_variance = global_variance
         self.total_data_length = total_data_length
@@ -114,27 +116,253 @@ class EnhancedEdge():
             self.num_clusters = len(means)
             self.kde = gmm
         elif args.use_dpgmm:
-            bandwidth = self.sheather_jones_bandwidth(timestamps)
-            data_variance = np.var(timestamps)
-            print("Bandwidth for DPGMM: ", bandwidth, flush=True)
-            print("data variance: ", data_variance, flush=True)
-            # print("Variance of data: ", np.var(timestamps), flush=True)
 
-            model = PyroDPGMM(K=args.K, global_variance=self.global_variance, total_data_length=self.total_data_length)
-            print("Timestamps shape: ", timestamps.shape, flush=True)
-            means, covs, weights = model.fit(timestamps, weights=data_weights)
+            kde = self.fit_kde(timestamps, data_weights)
+            model = self.fitted_kde_to_bgmm_simple(kde, x_min=np.min(timestamps), x_max=np.max(timestamps), n_components=args.K, grid_size=500, total_count=5000, grid_padding=0.10)
+            # model = self.fitted_kde_to_gmm_bic_simple(kde, x_min=np.min(timestamps), x_max=np.max(timestamps), k_max=args.K, grid_size=500, total_count=5000, grid_padding=0.10)
 
-            gmm = model.create_gmm(means, covs, weights)
+            means, covs, weights = model.means_.flatten(), model.covariances_.flatten(), model.weights_
+            means, covs, weights = truncate_clusters(means=means, variances=covs, weights=weights)
+
+
 
             self.means = means
             self.covariances = covs
             self.weights = weights
-            self.num_clusters = len(means)
-            self.kde = gmm
-            print("Number of components: ", self.num_clusters, flush=True)
+            self.num_clusters = len(self.means)
+            self.kde = model  # Store the model for later use
+
+
+            # self.select_gmm_by_bic(timestamps, k_max=args.K)
+
+            # if self.should_use_multimodal(timestamps):
+            #     print("Data appears multimodal, using DPGMM", flush=True)
+            #     if len(timestamps) <= 5000:
+            #         # Use sklearn's BayesianGaussianMixture for small datasets
+            #         print("Using sklearn's BayesianGaussianMixture for DPGMM", flush=True)
+            #         model = BayesianGaussianMixture(
+            #             n_components=args.K,  # Maximum number of components
+            #             covariance_type='diag',  # Diagonal covariance matrices
+            #             weight_concentration_prior_type='dirichlet_process',  # DPGMM
+            #             max_iter=1000,  # Increase iterations for convergence
+            #             random_state=42
+            #         )
+            #         timestamps_reshaped = np.array(timestamps).reshape(-1, 1)  # Reshape for sklearn
+            #         model.fit(timestamps_reshaped)
+
+            #         means, covs, weights = model.means_.flatten(), model.covariances_.flatten(), model.weights_
+            #         means, covs, weights = truncate_clusters(means=means, variances=covs, weights=weights)
+
+
+
+            #         self.means = means
+            #         self.covariances = covs
+            #         self.weights = weights
+            #         self.num_clusters = len(self.means)
+            #         self.kde = model  # Store the model for later use
+
+            #         print("Means: ", self.means, flush=True)
+            #         print("Covariances: ", self.covariances, flush=True)
+            #         print("Weights: ", self.weights, flush=True)
+            #         print("Number of components: ", self.num_clusters, flush=True)
+            #     else:
+            #         print("Using PyroDPGMM for DPGMM", flush=True)
+            #         # Use PyroDPGMM for larger datasets
+            #         # bandwidth = self.sheather_jones_bandwidth(timestamps)
+            #         # data_variance = np.var(timestamps)
+            #         model = PyroDPGMM(K=args.K, global_variance=self.global_variance, total_data_length=self.total_data_length)
+            #         means, covs, weights = model.fit(timestamps, weights=data_weights)
+
+            #         gmm = model.create_gmm(means, covs, weights)
+
+            #         self.means = means
+            #         self.covariances = covs
+            #         self.weights = weights
+            #         self.num_clusters = len(means)
+            #         self.kde = gmm
+            #         print("Means: ", self.means, flush=True)
+            #         print("Covariances: ", self.covariances, flush=True)
+            #         print("Weights: ", self.weights, flush=True)
+            #         print("Number of components: ", self.num_clusters, flush=True)
+            # else:
+            #     print("Data appears unimodal, using KDE", flush=True)
+                
         else:
             if len(timestamps) >= 2:
                self.kde = self.fit_kde(timestamps, data_weights)
+
+    def fitted_kde_to_bgmm_simple(self, kde, x_min, x_max, n_components=20, grid_size=400,
+                                total_count=2000, grid_padding=0.10,
+                                covariance_type="diag", random_state=0):
+        width = x_max - x_min
+        pad = grid_padding * max(width, 1e-8)
+        grid = np.linspace(x_min - pad, x_max + pad, grid_size).reshape(-1, 1)
+
+        log_density = kde.score_samples(grid)
+        dens = np.exp(log_density)
+        probs = dens / dens.sum()
+
+        counts = np.maximum(1, np.round(probs * total_count).astype(int))
+        x_rep = np.repeat(grid, counts, axis=0)
+
+        bgmm = BayesianGaussianMixture(
+            n_components=n_components,
+            covariance_type=covariance_type,
+            random_state=random_state,
+        )
+        bgmm.fit(x_rep)
+        return bgmm
+    
+    def fitted_kde_to_gmm_bic_simple(
+        self,
+        kde,
+        x_min,
+        x_max,
+        k_max=20,
+        grid_size=400,
+        total_count=5000,
+        grid_padding=0.10,
+        covariance_type="diag",
+        random_state=0,
+        n_init=5,
+        tol=2.0,
+        patience=3,
+    ):
+        width = x_max - x_min
+        pad = grid_padding * max(width, 1e-8)
+        grid = np.linspace(x_min - pad, x_max + pad, grid_size).reshape(-1, 1)
+
+        log_density = kde.score_samples(grid)
+        dens = np.exp(log_density)
+        probs = dens / dens.sum()
+
+        counts = np.maximum(1, np.round(probs * total_count).astype(int))
+        x_rep = np.repeat(grid, counts, axis=0)
+
+        best_bic = float("inf")
+        best_gmm = None
+        best_k = None
+        bic_history = []
+
+        no_improve_count = 0
+
+        for k in range(1, k_max + 1):
+            gmm = GaussianMixture(
+                n_components=k,
+                covariance_type=covariance_type,
+                random_state=random_state,
+                n_init=n_init,
+            )
+            gmm.fit(x_rep)
+            bic = gmm.bic(x_rep)
+            # bic_history.append((k, bic))
+
+            if bic < best_bic - tol:
+                best_bic = bic
+                best_gmm = gmm
+                best_k = k
+                no_improve_count = 0
+            else:
+                no_improve_count += 1
+
+            if no_improve_count >= patience:
+                break
+
+        return best_gmm
+
+    def select_gmm_by_bic(
+        self,
+        x,
+        k_max=100,
+        covariance_type="diag",
+        n_init=1,
+        random_state=0,
+        tol=2.0,
+        patience=3,
+    ):
+        """
+        Fit 1D Gaussian mixtures with K=1..k_max and select the best model by BIC,
+        with patience-based early stopping.
+
+        Parameters
+        ----------
+        x : array-like, shape (n_samples,)
+            1D data.
+        k_max : int
+            Maximum number of mixture components to try.
+        covariance_type : str
+            For 1D, 'diag' is appropriate.
+        n_init : int
+            Number of random initializations per K. Best run is kept.
+        random_state : int
+            Random seed for reproducibility.
+        tol : float
+            Minimum BIC improvement required to reset patience.
+        patience : int
+            Stop after this many consecutive K values without meaningful improvement.
+
+        Returns
+        -------
+        result : dict
+            {
+                "best_k": int,
+                "best_bic": float,
+                "best_model": fitted GaussianMixture,
+                "bic_history": list of (k, bic),
+                "stopped_early": bool
+            }
+        """
+        x = np.asarray(x, dtype=float).reshape(-1, 1)
+
+        best_bic = float("inf")
+        best_model = None
+        best_k = None
+        no_improve_count = 0
+        bic_history = []
+        stopped_early = False
+
+        for k in range(1, k_max + 1):
+            gmm = GaussianMixture(
+                n_components=k,
+                covariance_type=covariance_type,
+                n_init=n_init,
+                random_state=random_state,
+            )
+            gmm.fit(x)
+            bic = gmm.bic(x)
+            bic_history.append((k, bic))
+
+            if bic < best_bic - tol:
+                best_bic = bic
+                best_model = gmm
+                best_k = k
+                no_improve_count = 0
+            else:
+                no_improve_count += 1
+
+            if no_improve_count >= patience:
+                stopped_early = True
+                break
+
+        return best_model
+
+    def should_use_multimodal(self, x, bic_threshold=10.0):
+        x = np.asarray(x).reshape(-1, 1)
+
+        gmm1 = GaussianMixture(n_components=1, covariance_type="diag", random_state=0)
+        gmm2 = GaussianMixture(n_components=2, covariance_type="diag", random_state=0)
+
+        gmm1.fit(x)
+        gmm2.fit(x)
+
+        bic1 = gmm1.bic(x)
+        bic2 = gmm2.bic(x)
+
+        delta_bic = bic1 - bic2  # positive means 2-component is better
+        print(f"Delta BIC: {delta_bic:.2f}", flush=True)
+
+        return delta_bic > bic_threshold  # Adjust threshold as needed
+
 
     def fit_kde(self, data, weights):
         normalized_data = data
@@ -144,64 +372,58 @@ class EnhancedEdge():
         return KernelDensity(kernel="gaussian", bandwidth=bandwidth).fit(normalized_data, sample_weight=weights)
 
     
-    def sheather_jones_bandwidth(self, data):
+    def sheather_jones_bandwidth(self, data, grid_size=1024):
         """
-        Computes the bandwidth using the Sheather–Jones plug-in method.
-
-        Parameters:
-        - data (np.ndarray): 1D array of data points.
-
-        Returns:
-        - float: The estimated bandwidth.
+        Robust plug-in style bandwidth estimate inspired by Sheather-Jones.
+        Not the exact canonical Sheather-Jones estimator.
         """
-
-        if len(data) < 2:
-            print("Insufficient data for bandwidth estimation. Skipping KDE fitting.", flush=True)
-            return
-            # raise ValueError("Insufficient data for bandwidth estimation.")
-        if not np.all(np.isfinite(data)):
-            print("Input data contains NaN or Inf values. Skipping KDE fitting.", flush=True)
-            return
-            # raise ValueError("Input data contains NaN or Inf values.")
-        
-    
-        # data = np.asarray(data).flatten()
+        data = np.asarray(data, dtype=float).ravel()
+        data = data[np.isfinite(data)]
         n = len(data)
 
-        # Compute the standard deviation and interquartile range
-        std_dev = np.std(data)
-        iqr = np.subtract(*np.percentile(data, [75, 25]))
-        sigma = min(std_dev, iqr / 1.34)
+        if n < 2:
+            print("Insufficient data for bandwidth estimation. Skipping KDE fitting.", flush=True)
+            return None
 
+        std_dev = np.std(data, ddof=1)
+        q75, q25 = np.percentile(data, [75, 25])
+        iqr = q75 - q25
 
-        if sigma == 0:
-            print("All data points are identical. Bandwidth cannot be computed.", flush=True)
-            return
-            # raise ValueError("All data points are identical. Bandwidth cannot be computed.")
-    
+        sigma = min(std_dev, iqr / 1.34) if iqr > 0 else std_dev
 
-        # Define the pilot density function
-        def pilot_density(x):
-            return np.mean(norm.pdf((x - data) / sigma) / sigma)
+        # Robust lower bound for sigma
+        data_range = np.ptp(data)
+        sigma_floor = max(1e-12, 1e-3 * max(std_dev, data_range, 1.0))
+        sigma = max(sigma, sigma_floor)
 
-        # Define the second derivative of the pilot density
-        def pilot_density_second_derivative(x):
-            return np.mean(norm.pdf((x - data) / sigma) * ((x - data) ** 2 - sigma ** 2) / sigma ** 5)
+        if not np.isfinite(sigma) or sigma <= 0:
+            print("Invalid scale estimate. Falling back to Silverman's rule.", flush=True)
+            return 1.06 * max(std_dev, sigma_floor) * n ** (-1 / 5)
 
-        # Compute the integral of the squared second derivative of the pilot density
-        def integrand(x):
-            return pilot_density_second_derivative(x) ** 2
+        # Compute pilot density second derivative on a grid
+        lo = np.min(data) - 5 * sigma
+        hi = np.max(data) + 5 * sigma
+        xgrid = np.linspace(lo, hi, grid_size)
 
-        integral, _ = quad(integrand, np.min(data) - 3 * sigma, np.max(data) + 3 * sigma)
-        integral += 0.01 * np.var(data)
+        dx = xgrid[:, None] - data[None, :]
+        z = dx / sigma
+        phi = norm.pdf(z)
 
-        if integral <= 0 or not np.isfinite(integral):
-            print("Invalid integral value. Falling back to default bandwidth.", flush=True)
-            return 1.06 * np.std(data) * n ** (-1 / 5)
+        pilot_f2 = np.mean(phi * (dx**2 - sigma**2) / sigma**5, axis=1)
 
-        # Compute the bandwidth
+        integral = np.trapz(pilot_f2**2, xgrid)
+
+        if not np.isfinite(integral) or integral <= 1e-14:
+            print("Invalid integral value. Falling back to Silverman's rule.", flush=True)
+            return 1.06 * max(std_dev, sigma_floor) * n ** (-1 / 5)
+
         bandwidth = (1.06 * sigma * n ** (-1 / 5)) / (integral ** (1 / 5))
-        print(f"Sheather-Jones bandwidth: {bandwidth}", flush=True)
+
+        if not np.isfinite(bandwidth) or bandwidth <= 0:
+            print("Invalid bandwidth computed. Falling back to Silverman's rule.", flush=True)
+            return 1.06 * max(std_dev, sigma_floor) * n ** (-1 / 5)
+
+        print(f"Bandwidth estimate: {bandwidth}", flush=True)
         return bandwidth
     
     def gh3_pseudo_points(self):
