@@ -1,4 +1,5 @@
 import argparse
+from BayesianGaussianMixtureGPU import BayesianGaussianMixtureGPU
 from utils import ks_test_kdes
 import pickle
 from detection import create_edge_features, evaluate_autoencoder, create_true_labels, train_baseline
@@ -8,10 +9,11 @@ from create_graph_memory import merge_two_merged_edges, separate_two_merged_edge
 from datetime import datetime
 from online_detection import train_recency_detector, detect_recency_detector
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from experiment_helper import enhanced_edges_to_pickle_dict, reduce_helper, split_data, prep_data, process_splits, evaluate_enhancement, split_data_cic_ids, fit_data, set_adversarial_edge_timestamps
+from experiment_helper import enhanced_edges_to_pickle_dict, gpu_batches_to_enhanced_edges, merged_edges_to_matrix, reduce_helper, split_data, prep_data, process_splits, evaluate_enhancement, split_data_cic_ids, fit_data, set_adversarial_edge_timestamps, load_merged_edges, filter_merged_edges, scale_merged_edges, fit_batched_gpu_dpgmm, gmms_to_enhanced_edges
 import random
 import torch
 import pyro
+from tqdm import tqdm
 
 def set_random_seed(seed):
     # Set Python's built-in random seed
@@ -92,14 +94,37 @@ if __name__ == "__main__":
         args.detection = False
         args.visualize = True
         args.K = 100
+        args.scaler_type = "minmax"
+        args.long_data_mode = "random"
 
-        merged_edges, scalers = prep_data("./datasets/e3_theia/*.csv", None, args)
-        enhanced_edges = fit_data(merged_edges, args)
-        enhanced_edges_to_pickle_dict("e3_theia_dpgmm_enhanced_edges_dpgmm.pkl", enhanced_edges, scalers)
+        raw_merged_edges, _ = load_merged_edges("./datasets/cic-ids-2017/Monday-WorkingHours.csv", None, args)
+        gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+            raw_merged_edges,
+            n_components=args.K,
+            min_count=200,
+            scaler_type=args.scaler_type,
+            long_data_mode=args.long_data_mode,
+            long_data_threshold=50000,
+            batch_size=256,
+            max_iter=300,
+            random_state=42,
+            device="cuda",
+        )
 
-        evaluate_enhancement("./datasets/e3_theia/*.csv", enhanced_edges, merged_edges, args)
+        enhanced_edges = gmms_to_enhanced_edges(gmms, scaled_merged_edges, args)
 
+        # enhanced_edges_to_pickle_dict(
+        #     "e3_theia_dpgmm_enhanced_edges_dpgmm.pkl",
+        #     enhanced_edges,
+        #     scalers,
+        # )
 
+        evaluate_enhancement(
+            "./datasets/cic-ids-2017/Monday-WorkingHours.csv",
+            enhanced_edges,
+            scaled_merged_edges,
+            args,
+        )
 
     elif args.experiment_type == "reduction_dbstream_e5_trace":
         args.sys_call = True
