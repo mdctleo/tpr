@@ -1,0 +1,6 @@
+ Files changed: 
+
+kde_computation.py
+pidsmaker/kde_patch.py
+
+ Add this to the commit 41a3c3d14167cc5896a23cc7aee3e3d4c6bcd07c for KDE of timestamps with DPGMM (CAVI)
