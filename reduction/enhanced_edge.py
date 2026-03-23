@@ -28,12 +28,14 @@ class EnhancedEdge():
         self.covariances = None
         self.weights = None
         self.kde = None
+        self.timestamps = None
         self.reduction_threshold = 2000
 
         self.global_variance = global_variance
         self.total_data_length = total_data_length
 
     def fit(self, timestamps, args, data_weights=None):
+        self.timestamps = np.asarray(timestamps).reshape(-1, 1)
         self.count += len(timestamps)
         if args.method == "scan_gmm":
             kde = self.fit_kde(timestamps, data_weights)
@@ -437,7 +439,7 @@ class EnhancedEdge():
 
         pilot_f2 = np.mean(phi * (dx**2 - sigma**2) / sigma**5, axis=1)
 
-        integral = np.trapz(pilot_f2**2, xgrid)
+        integral = np.trapezoid(pilot_f2**2, xgrid)
 
         if not np.isfinite(integral) or integral <= 1e-14:
             print("Invalid integral value. Falling back to Silverman's rule.", flush=True)

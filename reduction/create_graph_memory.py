@@ -19,69 +19,65 @@ def read_csvs(paths):
     return pd.concat(dfs, ignore_index=True)
 
 def create_and_merge_graph(file_paths, target_nodes, args):
-
     merged_edges = defaultdict(list)
     total_edge_count = 0
-    unique_nodes = set()  # Set to track unique nodes
+    unique_nodes = set()
 
-    for file_path in file_paths:
-        for df in pd.read_csv(file_path, chunksize=100000):
-            df['node1_id'] = df['subjectname']
-            if 'subject_type' in df.columns:
-                df['node1_id'] = df['node1_id'] + "_" + df['subject_type']
+    print(f"Reading and merging {len(file_paths)} file(s)...", flush=True)
 
-            df['node2_id'] = df['objectname']
-            if 'object_type' in df.columns:
-                df['node2_id'] = df['node2_id'] + "_" + df['object_type']
+    for file_index, file_path in enumerate(tqdm(file_paths, desc="files"), start=1):
+        print(f"Processing file {file_index}/{len(file_paths)}: {file_path}", flush=True)
 
-        
+        chunk_iter = pd.read_csv(file_path, chunksize=100000)
+        for chunk_index, df in enumerate(tqdm(chunk_iter, desc=f"chunks[{file_index}]", leave=False), start=1):
+            df["node1_id"] = df["subjectname"]
+            if "subject_type" in df.columns:
+                df["node1_id"] = df["node1_id"] + "_" + df["subject_type"]
+
+            df["node2_id"] = df["objectname"]
+            if "object_type" in df.columns:
+                df["node2_id"] = df["node2_id"] + "_" + df["object_type"]
+
             total_edge_count += len(df)
-            unique_nodes.update(df['node1_id'].unique())
-            unique_nodes.update(df['node2_id'].unique())
-        
-            if args.detection == True:
-                df = df[df['objectname'].isin(target_nodes)]
-                df['syscall'] = "same"
-                df['subjectname'] = "same"
-                df['subject_type'] = "same"
-                df['object_type'] = "same"
-            elif args.static_detection == True:
-                print("Static detection mode reached!", flush=True)
-                df = df[df['objectname'].isin(target_nodes)]
-                df['subject_type'] = "same"
-                df['object_type'] = "same"
-                df['syscall'] = "same"
+            unique_nodes.update(df["node1_id"].unique())
+            unique_nodes.update(df["node2_id"].unique())
+
+            if args.detection:
+                df = df[df["objectname"].isin(target_nodes)].copy()
+                df["syscall"] = "same"
+                df["subjectname"] = "same"
+                df["subject_type"] = "same"
+                df["object_type"] = "same"
+            elif args.static_detection:
+                df = df[df["objectname"].isin(target_nodes)].copy()
+                df["subject_type"] = "same"
+                df["object_type"] = "same"
+                df["syscall"] = "same"
             else:
-                df['timestamp'] = df['timestamp'] / 1e9
+                df["timestamp"] = df["timestamp"] / 1e9
 
-            # print("finished creating node ids!", flush=True)
+            df = df[["node1_id", "node2_id", "syscall", "timestamp"]]
 
-            df = df[['node1_id', 'node2_id', 'syscall', 'timestamp']]
+            if target_nodes is not None and not (args.detection or args.static_detection):
+                df = df[df["node2_id"].str.rsplit("_", n=1).str[0].isin(target_nodes)]
 
-            # print("removed unnecessary columns!", flush=True)
+            grouped = (
+                df.groupby(["node1_id", "node2_id", "syscall"], sort=False)["timestamp"]
+                .agg(list)
+            )
 
-            # Each group will have the same source, destination nodes and syscall
-            grouped = df.groupby(['node1_id', 'node2_id', 'syscall'])
-
-            # print("finished grouping edges!", flush=True)
-            # print("number of groups: ", len(grouped), flush=True)
-
-            for (node1_id, node2_id, syscall), group in tqdm(grouped, total=len(grouped), desc="Creating and merging edges"):
-                
-                if target_nodes is not None:
-                    objectname, object_type = node2_id.rsplit("_", 1)
-                    if objectname not in target_nodes:
-                        continue
-
-                # Aggregate timestamps for the group
-                timestamps = group['timestamp'].tolist()
-                # print("length of timestamps: ", len(timestamps), flush=True)
-                key = (node1_id, node2_id, syscall)
+            for key, timestamps in grouped.items():
                 merged_edges[key].extend(timestamps)
+
+            print(
+                f"  merged chunk {chunk_index}: rows={len(df)}, chunk_groups={len(grouped)}, total_merged_edges={len(merged_edges)}",
+                flush=True,
+            )
 
     print("Total number of unique nodes: ", len(unique_nodes), flush=True)
     print("Total number of edges: ", total_edge_count, flush=True)
     return merged_edges, total_edge_count
+
 
 def merge_edges_memory(nodes, edges, args):
     print("Merging edges...", flush=True)
