@@ -130,7 +130,7 @@ def generate_timestamps(start_time, end_time, interval_minutes):
 
 def generate_graphs(cur, uuid2type, graph_out_dir, hash2uuid, cfg):
     rel2id = get_rel2id(cfg)
-    ntype2id = get_node_map()
+    ntype2id = get_node_map(cfg=cfg)
     include_edge_type = rel2id
     node_type_dict = ntype2id
 

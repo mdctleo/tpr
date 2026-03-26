@@ -320,9 +320,12 @@ def set_task_paths(cfg, subtask_concat_value=None):
     cfg.evaluation._results_dir = os.path.join(cfg.evaluation._task_path, "results/")
 
     # Ground Truth paths
-    cfg._ground_truth_dir = os.path.join(
-        ROOT_GROUND_TRUTH_DIR, cfg.evaluation.ground_truth_version + "/"
-    )
+    if cfg.evaluation.ground_truth_version == "none":
+        cfg._ground_truth_dir = ROOT_GROUND_TRUTH_DIR
+    else:
+        cfg._ground_truth_dir = os.path.join(
+            ROOT_GROUND_TRUTH_DIR, cfg.evaluation.ground_truth_version + "/"
+        )
 
     # Triage paths
     cfg.triage._tracing_graph_dir = os.path.join(cfg.triage._task_path, "tracing_graphs")
@@ -700,11 +703,14 @@ def add_cfg_args_to_parser(cfg, parser):
 
 def get_darpa_tc_node_feats_from_cfg(cfg):
     features = cfg.construction.node_label_features
-    return {
-        "subject": list(map(lambda x: x.strip(), features.subject.split(","))),
-        "file": list(map(lambda x: x.strip(), features.file.split(","))),
-        "netflow": list(map(lambda x: x.strip(), features.netflow.split(","))),
-    }
+    result = {}
+    for node_type in ["subject", "file", "netflow"]:
+        feat_str = getattr(features, node_type, None)
+        if feat_str is not None and feat_str.strip():
+            result[node_type] = list(map(lambda x: x.strip(), feat_str.split(",")))
+        else:
+            result[node_type] = []
+    return result
 
 
 TASK_FINISHED_FILE = "done.txt"
