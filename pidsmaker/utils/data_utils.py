@@ -304,12 +304,20 @@ def extract_msg_from_data(
 
 
 def get_possible_triplets(cfg):
-    entity_map = get_node_map(from_zero=True)
+    entity_map = get_node_map(cfg=cfg, from_zero=True)
     event_map = get_rel2id(cfg, from_zero=True)
 
+    # Choose the right possible_events based on dataset
+    from pidsmaker.utils.dataset_utils import CIC_IDS_DATASETS, possible_events_cic_ids
+    
+    if cfg.dataset.name in CIC_IDS_DATASETS:
+        events_dict = possible_events_cic_ids
+    else:
+        events_dict = possible_events
+    
     possible_triplets = [
         [entity_map[src_type], entity_map[dst_type], event_map[event]]
-        for (src_type, dst_type), events in possible_events.items()
+        for (src_type, dst_type), events in events_dict.items()
         for event in events
     ]
     return torch.tensor(possible_triplets, dtype=torch.long)

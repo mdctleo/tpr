@@ -123,6 +123,69 @@ DATASET_DEFAULT_CONFIG = {
             ["E3-CADETS/node_Nginx_Backdoor_13.csv", "2018-04-13 09:03:00", "2018-04-13 09:16:00"],
         ],
     },
+    "CIC_IDS_2017": {
+        "raw_dir": "",
+        "database": "cic_ids_2017",
+        "database_all_file": "cic_ids_2017",
+        "num_node_types": 1,
+        "num_edge_types": 3,
+        "year_month": "2017-07",
+        "start_end_day_range": (3, 8),
+        "timestamp_unit": "ns",
+        "train_files": ["graph_3"],
+        "val_files": ["graph_4"],
+        "test_files": ["graph_5", "graph_6", "graph_7"],
+        "unused_files": [],
+        "ground_truth_relative_path": [
+            "CIC-IDS-2017/node_ftp_patator_tue.csv",
+            "CIC-IDS-2017/node_ssh_patator_tue.csv",
+            "CIC-IDS-2017/node_dos_slowloris_wed.csv",
+            "CIC-IDS-2017/node_dos_slowhttptest_wed.csv",
+            "CIC-IDS-2017/node_dos_hulk_wed.csv",
+            "CIC-IDS-2017/node_dos_goldeneye_wed.csv",
+            "CIC-IDS-2017/node_heartbleed_wed.csv",
+            "CIC-IDS-2017/node_web_bruteforce_thu.csv",
+            "CIC-IDS-2017/node_web_xss_thu.csv",
+            "CIC-IDS-2017/node_web_sqli_thu.csv",
+            "CIC-IDS-2017/node_infiltration_step1_thu.csv",
+            "CIC-IDS-2017/node_infiltration_step2_thu.csv",
+            "CIC-IDS-2017/node_botnet_fri.csv",
+            "CIC-IDS-2017/node_portscan_fri.csv",
+            "CIC-IDS-2017/node_ddos_loit_fri.csv",
+        ],
+        "attack_to_time_window": [
+            # Tuesday: FTP-Patator 9:20-10:20 AM EDT = 13:20-14:20 UTC
+            ["CIC-IDS-2017/node_ftp_patator_tue.csv", "2017-07-04 09:20:00", "2017-07-04 10:20:00"],
+            # Tuesday: SSH-Patator 14:00-15:00 EDT = 18:00-19:00 UTC
+            ["CIC-IDS-2017/node_ssh_patator_tue.csv", "2017-07-04 14:00:00", "2017-07-04 15:00:00"],
+            # Wednesday: DoS Slowloris 9:47-10:10
+            ["CIC-IDS-2017/node_dos_slowloris_wed.csv", "2017-07-05 09:47:00", "2017-07-05 10:10:00"],
+            # Wednesday: DoS Slowhttptest 10:14-10:35
+            ["CIC-IDS-2017/node_dos_slowhttptest_wed.csv", "2017-07-05 10:14:00", "2017-07-05 10:35:00"],
+            # Wednesday: DoS Hulk 10:43-11:00
+            ["CIC-IDS-2017/node_dos_hulk_wed.csv", "2017-07-05 10:43:00", "2017-07-05 11:00:00"],
+            # Wednesday: DoS GoldenEye 11:10-11:23
+            ["CIC-IDS-2017/node_dos_goldeneye_wed.csv", "2017-07-05 11:10:00", "2017-07-05 11:23:00"],
+            # Wednesday: Heartbleed 15:12-15:32
+            ["CIC-IDS-2017/node_heartbleed_wed.csv", "2017-07-05 15:12:00", "2017-07-05 15:32:00"],
+            # Thursday: Web Brute Force 9:20-10:00
+            ["CIC-IDS-2017/node_web_bruteforce_thu.csv", "2017-07-06 09:20:00", "2017-07-06 10:00:00"],
+            # Thursday: Web XSS 10:15-10:35
+            ["CIC-IDS-2017/node_web_xss_thu.csv", "2017-07-06 10:15:00", "2017-07-06 10:35:00"],
+            # Thursday: Web SQL Injection 10:40-10:42
+            ["CIC-IDS-2017/node_web_sqli_thu.csv", "2017-07-06 10:40:00", "2017-07-06 10:42:00"],
+            # Thursday: Infiltration step 1 (Metasploit Vista) 14:19-14:35
+            ["CIC-IDS-2017/node_infiltration_step1_thu.csv", "2017-07-06 14:19:00", "2017-07-06 14:35:00"],
+            # Thursday: Infiltration step 2 (Vista portscan) 15:04-15:45
+            ["CIC-IDS-2017/node_infiltration_step2_thu.csv", "2017-07-06 15:04:00", "2017-07-06 15:45:00"],
+            # Friday: Botnet ARES 10:02-11:02
+            ["CIC-IDS-2017/node_botnet_fri.csv", "2017-07-07 10:02:00", "2017-07-07 11:02:00"],
+            # Friday: Port Scan 13:55-15:29
+            ["CIC-IDS-2017/node_portscan_fri.csv", "2017-07-07 13:55:00", "2017-07-07 15:29:00"],
+            # Friday: DDoS LOIT 15:56-16:16
+            ["CIC-IDS-2017/node_ddos_loit_fri.csv", "2017-07-07 15:56:00", "2017-07-07 16:16:00"],
+        ],
+    },
     "CLEARSCOPE_E5": {
         "raw_dir": "",
         "database": "clearscope_e5",
@@ -899,7 +962,7 @@ TASK_ARGS = {
             bool,
             desc="Whether to generate images of malicious nodes' neighborhoods (not stable).",
         ),
-        "ground_truth_version": Arg(str, vals=OR(["orthrus", "reapr"])),
+        "ground_truth_version": Arg(str, vals=OR(["orthrus", "reapr", "none"])),
         "best_model_selection": Arg(
             str,
             vals=OR(["best_adp", "best_discrimination"]),

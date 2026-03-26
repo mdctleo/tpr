@@ -87,6 +87,11 @@ possible_events = {
 }
 # TODO: do the same for optc (different edges)
 
+# CIC-IDS-2017 only has netflow->netflow edges
+possible_events_cic_ids = {
+    ("netflow", "netflow"): ["TCP", "UDP", "Other"],
+}
+
 rel2id_optc = {
     1: "OPEN",
     "OPEN": 1,
@@ -108,6 +113,20 @@ rel2id_optc = {
     "TERMINATE": 9,
     10: "WRITE",
     "WRITE": 10,
+}
+
+rel2id_cic_ids = {
+    1: "TCP",
+    "TCP": 1,
+    2: "UDP",
+    "UDP": 2,
+    3: "Other",
+    "Other": 3,
+}
+
+ntype2id_cic_ids = {
+    1: "netflow",
+    "netflow": 1,
 }
 
 rel2id_atlasv2 = {
@@ -193,11 +212,17 @@ def get_rel2id(cfg, from_zero=False):
         return decrement_dict(rel2id_optc) if from_zero else rel2id_optc
     elif cfg.dataset.name in ATLASv2_DATASETS:
         return rel2id_atlasv2
+    elif cfg.dataset.name in CIC_IDS_DATASETS:
+        return decrement_dict(rel2id_cic_ids) if from_zero else rel2id_cic_ids
     else:
         return decrement_dict(rel2id_darpa_tc) if from_zero else rel2id_darpa_tc
 
 
-def get_node_map(from_zero=False):
+def get_node_map(cfg=None, from_zero=False):
+    if cfg is not None and cfg.dataset.name in CIC_IDS_DATASETS:
+        if from_zero:
+            return decrement_dict(ntype2id_cic_ids)
+        return ntype2id_cic_ids
     if from_zero:
         return decrement_dict(ntype2id)
     return ntype2id
@@ -205,16 +230,19 @@ def get_node_map(from_zero=False):
 
 def get_num_edge_type(cfg):
     if cfg.dataset.name not in OPTC_DATASETS and "edge_type_triplet" in cfg.batching.edge_features:
+        if cfg.dataset.name in CIC_IDS_DATASETS:
+            return sum([len(events) for events in possible_events_cic_ids.values()])
         return sum([len(events) for events in possible_events.values()])
     return cfg.dataset.num_edge_types
 
 
 def get_rel2id_considering_triplets(cfg):
     if "edge_type_triplet" in cfg.batching.edge_features:
+        events_src = possible_events_cic_ids if cfg.dataset.name in CIC_IDS_DATASETS else possible_events
         return {
             i + 1: e
             for i, e in enumerate(
-                [event for events in possible_events.values() for event in events]
+                [event for events in events_src.values() for event in events]
             )
         }
     return get_rel2id(cfg)
@@ -231,6 +259,7 @@ ntype2id = {
 
 OPTC_DATASETS = {"optc_h201", "optc_h501", "optc_h051"}
 ATLASv2_DATASETS = {"atlasv2_h1"}
+CIC_IDS_DATASETS = {"CIC_IDS_2017"}
 
 OPTC_hostname_map = {
     "optc_h051": "SysClient0051",
