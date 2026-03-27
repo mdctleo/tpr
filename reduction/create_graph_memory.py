@@ -30,6 +30,14 @@ def create_and_merge_graph(file_paths, target_nodes, args):
 
         chunk_iter = pd.read_csv(file_path, chunksize=100000)
         for chunk_index, df in enumerate(tqdm(chunk_iter, desc=f"chunks[{file_index}]", leave=False), start=1):
+            
+            # target_nodes = ["192.168.10.50"]
+            # df = df[df["objectname"].isin(target_nodes)].copy()
+            # df["syscall"] = "same"
+            # df["subjectname"] = "same"
+            # df["subject_type"] = "same"
+            # df["object_type"] = "same"
+               
             df["node1_id"] = df["subjectname"]
             if "subject_type" in df.columns:
                 df["node1_id"] = df["node1_id"] + "_" + df["subject_type"]
@@ -42,19 +50,7 @@ def create_and_merge_graph(file_paths, target_nodes, args):
             unique_nodes.update(df["node1_id"].unique())
             unique_nodes.update(df["node2_id"].unique())
 
-            if args.detection:
-                df = df[df["objectname"].isin(target_nodes)].copy()
-                df["syscall"] = "same"
-                df["subjectname"] = "same"
-                df["subject_type"] = "same"
-                df["object_type"] = "same"
-            elif args.static_detection:
-                df = df[df["objectname"].isin(target_nodes)].copy()
-                df["subject_type"] = "same"
-                df["object_type"] = "same"
-                df["syscall"] = "same"
-            else:
-                df["timestamp"] = df["timestamp"] / 1e9
+            df["timestamp"] = df["timestamp"] / 1e9
 
             df = df[["node1_id", "node2_id", "syscall", "timestamp"]]
 
