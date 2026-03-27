@@ -148,6 +148,7 @@ DATASET_DEFAULT_CONFIG = {
             "CIC-IDS-2017/node_web_xss_thu.csv",
             "CIC-IDS-2017/node_web_sqli_thu.csv",
             "CIC-IDS-2017/node_infiltration_step1_thu.csv",
+            "CIC-IDS-2017/node_infiltration_cooldisk_thu.csv",
             "CIC-IDS-2017/node_infiltration_step2_thu.csv",
             "CIC-IDS-2017/node_botnet_fri.csv",
             "CIC-IDS-2017/node_portscan_fri.csv",
@@ -176,6 +177,8 @@ DATASET_DEFAULT_CONFIG = {
             ["CIC-IDS-2017/node_web_sqli_thu.csv", "2017-07-06 10:40:00", "2017-07-06 10:42:00"],
             # Thursday: Infiltration step 1 (Metasploit Vista) 14:19-14:35
             ["CIC-IDS-2017/node_infiltration_step1_thu.csv", "2017-07-06 14:19:00", "2017-07-06 14:35:00"],
+            # Thursday: Infiltration Cool Disk MAC 14:53-15:00
+            ["CIC-IDS-2017/node_infiltration_cooldisk_thu.csv", "2017-07-06 14:53:00", "2017-07-06 15:00:00"],
             # Thursday: Infiltration step 2 (Vista portscan) 15:04-15:45
             ["CIC-IDS-2017/node_infiltration_step2_thu.csv", "2017-07-06 15:04:00", "2017-07-06 15:45:00"],
             # Friday: Botnet ARES 10:02-11:02

@@ -15,6 +15,9 @@ def get_ground_truth(cfg):
         with open(os.path.join(cfg._ground_truth_dir, file), "r") as f:
             reader = csv.reader(f)
             for row in reader:
+                if len(row) < 3:
+                    print(f"Unexpected row format: {row}")
+                    continue
                 node_uuid, node_labels, _ = row[0], row[1], row[2]
                 node_id = uuid2nids[node_uuid]
                 ground_truth_nids.append(int(node_id))
@@ -29,6 +32,8 @@ def get_ground_truth(cfg):
             with open(os.path.join(cfg.construction._mimicry_dir, file_name), "r") as f:
                 reader = csv.reader(f)
                 for row in reader:
+                    if len(row) < 3:
+                        continue
                     node_uuid, node_labels, _ = row[0], row[1], row[2]
                     node_id = uuid2nids[node_uuid]
                     ground_truth_nids.append(int(node_id))
@@ -59,6 +64,8 @@ def get_GP_of_each_attack(cfg):
         with open(os.path.join(cfg._ground_truth_dir, path), "r") as f:
             reader = csv.reader(f)
             for row in reader:
+                if len(row) < 3:
+                    continue
                 node_uuid, node_labels, _ = row[0], row[1], row[2]
                 node_id = uuid2nids[node_uuid]
                 attack_to_nids[i]["nids"].add(int(node_id))
@@ -69,6 +76,8 @@ def get_GP_of_each_attack(cfg):
             with open(os.path.join(cfg.construction._mimicry_dir, path.split("/")[-1]), "r") as f:
                 reader = csv.reader(f)
                 for row in reader:
+                    if len(row) < 3:
+                        continue
                     num_mimicry_GPs += 1
                     node_uuid, node_labels, _ = row[0], row[1], row[2]
                     node_id = uuid2nids[node_uuid]
@@ -124,6 +133,8 @@ def get_t2malicious_node(cfg) -> dict[list]:
         with open(os.path.join(cfg._ground_truth_dir, attack), "r") as f:
             reader = csv.reader(f)
             for row in reader:
+                if len(row) < 3:
+                    continue
                 node_uuid, node_labels, _ = row[0], row[1], row[2]
                 node_id = uuid2nids[node_uuid]
                 ground_truth_nids.add(str(node_id))
@@ -137,6 +148,8 @@ def get_t2malicious_node(cfg) -> dict[list]:
             ) as f:
                 reader = csv.reader(f)
                 for row in reader:
+                    if len(row) < 3:
+                        continue
                     node_uuid, node_labels, _ = row[0], row[1], row[2]
                     node_id = uuid2nids[node_uuid]
                     ground_truth_nids.add(str(node_id))
