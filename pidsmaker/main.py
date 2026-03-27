@@ -19,20 +19,6 @@ from collections import defaultdict
 import torch
 import wandb
 
-# Import KDE patching module for optional KDE time encoding support
-try:
-    from pidsmaker.kde_patch import patch_for_kde_time_encoding, finalize_kde_training
-    KDE_PATCH_AVAILABLE = True
-except ImportError:
-    KDE_PATCH_AVAILABLE = False
-
-# Import reduced graph patching module for temporal summary features
-try:
-    from pidsmaker.reduced_patch import patch_for_reduced_time_encoding
-    REDUCED_PATCH_AVAILABLE = True
-except ImportError:
-    REDUCED_PATCH_AVAILABLE = False
-
 from pidsmaker.config import (
     get_runtime_required_args,
     get_uncertainty_methods_to_run,
@@ -360,14 +346,6 @@ if __name__ == "__main__":
 
     cfg = get_yml_cfg(args)
     wandb.config.update(clean_cfg_for_log(cfg))
-    
-    # Apply KDE patches if using kde configuration
-    if KDE_PATCH_AVAILABLE and 'kde' in args.model.lower():
-        patch_for_kde_time_encoding(cfg)
-    
-    # Apply reduced graph patches if using _red configuration
-    if REDUCED_PATCH_AVAILABLE and '_red' in args.model.lower():
-        patch_for_reduced_time_encoding(cfg)
 
     main(cfg, project=args.project, exp=exp_name, sweep_id=args.sweep_id)
 

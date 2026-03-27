@@ -120,7 +120,7 @@ fi
 
 # Wait for PostgreSQL to be ready
 echo -e "${YELLOW}Waiting for PostgreSQL to start...${NC}"
-for i in {1..30}; do
+for i in {1..150}; do
     if $CONTAINER_CMD exec instance://$POSTGRES_INSTANCE pg_isready -h localhost -U postgres > /dev/null 2>&1; then
         echo -e "${GREEN}PostgreSQL is ready!${NC}"
         echo -e "${GREEN}Connection: $CONTAINER_CMD exec instance://$POSTGRES_INSTANCE psql -h localhost -U postgres${NC}"
@@ -131,6 +131,6 @@ for i in {1..30}; do
     sleep 2
 done
 
-echo -e "${RED}PostgreSQL failed to start within 60 seconds${NC}"
+echo -e "${RED}PostgreSQL failed to start within 300 seconds${NC}"
 $CONTAINER_CMD instance stop $POSTGRES_INSTANCE 2>/dev/null || true
 exit 1

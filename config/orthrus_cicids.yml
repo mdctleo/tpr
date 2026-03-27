@@ -4,8 +4,6 @@ _include_yml: orthrus_non_snooped_edge_ts
 # subject and file node types do not exist in this dataset.
 construction:
   node_label_features:
-    subject: ""
-    file: ""
     netflow: remote_ip, remote_port
 
 evaluation:

@@ -2,18 +2,25 @@
 """
 Generate Ground Truth CSV files for CIC-IDS-2017 in PIDSMaker format.
 
-Ground truth = malicious NODE IDs (attacker-side only, not victims).
+Ground truth = all nodes in the attack chain (attackers AND victims).
 
-Attacker-side nodes:
-  - 172.16.0.1 (firewall/NAT) — represents external Kali attacker (205.174.165.73)
-    for all externally-sourced attacks.
-  - 192.168.10.8 (Win Vista) — becomes an attacker during Thursday Infiltration
-    second step (portscan from Vista to all other clients).
+Attacker nodes:
+  - 172.16.0.1  (firewall/NAT) — always marked malicious; represents external
+    attackers after NAT for most attacks.
+  - 205.174.165.73  (Kali) — external attacker IP, visible in the dataset for
+    some attacks (Infiltration step1, Botnet ARES) and included in all
+    externally-sourced attacks per official CIC-IDS-2017 documentation.
+  - 192.168.10.8  (Win Vista) — becomes an attacker during Thursday Infiltration
+    second step (portscan from Vista to all other internal clients).
+  - 205.174.165.69/70/71  (external Win machines) — DDoS LOIT attackers,
+    NAT'd through 172.16.0.1.
 
-Victim nodes are NOT marked malicious unless they pass on the attack.
+Victim nodes are marked malicious as part of the full attack chain,
+based on official CIC-IDS-2017 dataset documentation.
 
 Output: CSV files with columns matching PIDSMaker ground truth format:
-    index_id  (one malicious node ID per line)
+    node_uuid, label, placeholder  (3-column format, node_uuid = IP address)
+    label is "attacker" for attacker nodes, "victim" for victim nodes.
 
 Usage:
     python3 generate_ground_truth.py \
@@ -66,60 +73,178 @@ def get_ip_to_index(input_dir):
 
 
 # ── Attack definitions ────────────────────────────────────────────────────────
-# Format: (gt_filename, list_of_attacker_IPs)
+# Format: (gt_filename, [(ip, label), ...])
 #
-# Only attacker-side nodes are included.
-# 172.16.0.1 = external attacker (Kali) after NAT
-# 192.168.10.8 = Vista (becomes attacker in Infiltration second step)
+# Full attack chain: both attacker and victim nodes are included.
+# label is "attacker" or "victim".
+#
+# Attacker IPs:
+#   172.16.0.1      = firewall/NAT (always malicious)
+#   205.174.165.73  = Kali (external attacker)
+#   192.168.10.8    = Vista (becomes attacker in Infiltration step2)
+#   205.174.165.69/70/71 = external Win machines (DDoS LOIT)
+#
+# Victim IPs: per official CIC-IDS-2017 documentation.
+# CSV flow verification where data is available; official mapping used
+# for attacks whose time windows fall outside the truncated CSV coverage.
 
 ATTACK_GROUND_TRUTH = [
-    # Tuesday: FTP-Patator (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_ftp_patator_tue.csv", ["172.16.0.1"]),
+    # ── Tuesday ────────────────────────────────────────────────────────────
+    # FTP-Patator (9:20-10:20 EDT): Kali -> firewall -> WebServer
+    # CSV-verified: 172.16.0.1 <-> 192.168.10.50 (487 flows)
+    ("CIC-IDS-2017/node_ftp_patator_tue.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Tuesday: SSH-Patator (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_ssh_patator_tue.csv", ["172.16.0.1"]),
+    # SSH-Patator (14:00-15:00 EDT): Kali -> firewall -> WebServer
+    # CSV truncated at 13:32 EDT; official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_ssh_patator_tue.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Wednesday: DoS Slowloris (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_dos_slowloris_wed.csv", ["172.16.0.1"]),
+    # ── Wednesday ──────────────────────────────────────────────────────────
+    # DoS Slowloris (9:47-10:10 EDT): Kali -> firewall -> WebServer
+    # CSV-verified: 172.16.0.1 <-> 192.168.10.50, .51 (1,778,079 flows)
+    ("CIC-IDS-2017/node_dos_slowloris_wed.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Wednesday: DoS Slowhttptest (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_dos_slowhttptest_wed.csv", ["172.16.0.1"]),
+    # DoS Slowhttptest (10:14-10:35 EDT): Kali -> firewall -> WebServer
+    # CSV partially covers (ends 10:18); verified 172.16.0.1 <-> .50,.51
+    # Official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_dos_slowhttptest_wed.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Wednesday: DoS Hulk (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_dos_hulk_wed.csv", ["172.16.0.1"]),
+    # DoS Hulk (10:43-11:00 EDT): Kali -> firewall -> WebServer
+    # CSV truncated at 10:18 EDT; official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_dos_hulk_wed.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Wednesday: DoS GoldenEye (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_dos_goldeneye_wed.csv", ["172.16.0.1"]),
+    # DoS GoldenEye (11:10-11:23 EDT): Kali -> firewall -> WebServer
+    # CSV truncated at 10:18 EDT; official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_dos_goldeneye_wed.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Wednesday: Heartbleed (Kali -> via firewall -> Ubuntu12)
-    ("CIC-IDS-2017/node_heartbleed_wed.csv", ["172.16.0.1"]),
+    # Heartbleed (15:12-15:32 EDT): Kali -> firewall -> Ubuntu12
+    # CSV truncated at 10:18 EDT; official victim = Ubuntu12 192.168.10.51
+    ("CIC-IDS-2017/node_heartbleed_wed.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.51", "victim"),
+    ]),
 
-    # Thursday AM: Web Attack Brute Force (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_web_bruteforce_thu.csv", ["172.16.0.1"]),
+    # ── Thursday AM ────────────────────────────────────────────────────────
+    # Web Brute Force (9:20-10:00 EDT): Kali -> firewall -> WebServer
+    # CSV-verified: 172.16.0.1 <-> 192.168.10.50 (7,826 flows)
+    ("CIC-IDS-2017/node_web_bruteforce_thu.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Thursday AM: Web Attack XSS (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_web_xss_thu.csv", ["172.16.0.1"]),
+    # Web XSS (10:15-10:35 EDT): Kali -> firewall -> WebServer
+    # App-layer attack; no direct attacker flows visible at flow level.
+    # Official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_web_xss_thu.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Thursday AM: Web Attack SQL Injection (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_web_sqli_thu.csv", ["172.16.0.1"]),
+    # Web SQL Injection (10:40-10:42 EDT): Kali -> firewall -> WebServer
+    # App-layer attack; no direct attacker flows visible at flow level.
+    # Official victim = WebServer 192.168.10.50
+    ("CIC-IDS-2017/node_web_sqli_thu.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 
-    # Thursday PM: Infiltration first step (Kali -> Vista via Dropbox/Metasploit)
-    # Attack comes through firewall to Vista
-    ("CIC-IDS-2017/node_infiltration_step1_thu.csv", ["172.16.0.1"]),
+    # ── Thursday PM ────────────────────────────────────────────────────────
+    # Infiltration step1: Metasploit (14:19-14:35 EDT)
+    # Kali -> Vista via Dropbox exploit (bypasses NAT)
+    # CSV-verified: 205.174.165.73 <-> 192.168.10.8 (349 flows)
+    ("CIC-IDS-2017/node_infiltration_step1_thu.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.8", "victim"),
+    ]),
 
-    # Thursday PM: Infiltration second step (Vista does portscan on all clients)
-    # Vista is now the ATTACKER
-    ("CIC-IDS-2017/node_infiltration_step2_thu.csv", ["192.168.10.8"]),
+    # Infiltration Cool Disk – MAC (14:53-15:00 EDT)
+    # Kali -> MAC via removable media; no network flows expected.
+    # Official: attacker=Kali, victim=MAC 192.168.10.25
+    ("CIC-IDS-2017/node_infiltration_cooldisk_thu.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.25", "victim"),
+    ]),
 
-    # Friday AM: Botnet ARES (Kali -> via firewall -> multiple Windows victims)
-    ("CIC-IDS-2017/node_botnet_fri.csv", ["172.16.0.1"]),
+    # Infiltration step2: Vista portscan (15:04-15:45 EDT)
+    # Compromised Vista scans all other internal clients.
+    # CSV partially covers (ends 15:21); official victim = all other clients.
+    ("CIC-IDS-2017/node_infiltration_step2_thu.csv", [
+        ("192.168.10.8", "attacker"),
+        ("192.168.10.3", "victim"),     # DNS+DC Server
+        ("192.168.10.5", "victim"),     # Win 8.1
+        ("192.168.10.9", "victim"),     # Win 7
+        ("192.168.10.12", "victim"),    # Ubuntu 16.4 64B
+        ("192.168.10.14", "victim"),    # Win 10 pro 32B
+        ("192.168.10.15", "victim"),    # Win 10 64B
+        ("192.168.10.16", "victim"),    # Ubuntu 16.4 32B
+        ("192.168.10.17", "victim"),    # Ubuntu 14.4 64B
+        ("192.168.10.19", "victim"),    # Ubuntu 14.4 32B
+        ("192.168.10.25", "victim"),    # MAC
+        ("192.168.10.50", "victim"),    # Web server 16
+        ("192.168.10.51", "victim"),    # Ubuntu server 12
+    ]),
 
-    # Friday PM: Port Scan (Kali -> via firewall -> WebServer)
-    ("CIC-IDS-2017/node_portscan_fri.csv", ["172.16.0.1"]),
+    # ── Friday AM ──────────────────────────────────────────────────────────
+    # Botnet ARES (10:02-11:02 EDT): Kali -> 5 Windows/Vista victims
+    # CSV-verified: 205.174.165.73 <-> all 5 victims (1,479 flows)
+    ("CIC-IDS-2017/node_botnet_fri.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.5", "victim"),     # Win 8.1
+        ("192.168.10.8", "victim"),     # Vista
+        ("192.168.10.9", "victim"),     # Win 7
+        ("192.168.10.14", "victim"),    # Win 10 pro 32B
+        ("192.168.10.15", "victim"),    # Win 10 64B
+    ]),
 
-    # Friday PM: DDoS LOIT (3 external Win machines -> via firewall -> WebServer)
-    # All 3 attackers go through NAT, appearing as 172.16.0.1
-    ("CIC-IDS-2017/node_ddos_loit_fri.csv", ["172.16.0.1"]),
+    # ── Friday PM ──────────────────────────────────────────────────────────
+    # Port Scan (13:55-15:29 EDT): Kali -> firewall -> WebServer
+    # CSV-verified: 172.16.0.1 <-> 192.168.10.50 (425,489 flows)
+    ("CIC-IDS-2017/node_portscan_fri.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.73", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
+
+    # DDoS LOIT (15:56-16:16 EDT): 3 external Win -> firewall -> WebServer
+    # CSV truncated at 15:01 EDT; official victim = WebServer 192.168.10.50.
+    # External attackers 205.174.165.69/70/71 NAT'd through 172.16.0.1.
+    ("CIC-IDS-2017/node_ddos_loit_fri.csv", [
+        ("172.16.0.1", "attacker"),
+        ("205.174.165.69", "attacker"),
+        ("205.174.165.70", "attacker"),
+        ("205.174.165.71", "attacker"),
+        ("192.168.10.50", "victim"),
+    ]),
 ]
 
 
@@ -148,28 +273,38 @@ def main():
     print(f"    Total IPs: {len(ip_to_index)}")
 
     # Check that key attacker IPs exist in dataset
-    for ip in ["172.16.0.1", "192.168.10.8"]:
+    key_ips = ["172.16.0.1", "205.174.165.73", "192.168.10.8",
+               "205.174.165.69", "205.174.165.70", "205.174.165.71"]
+    for ip in key_ips:
         if ip in ip_to_index:
             print(f"    {ip} -> index_id {ip_to_index[ip]}")
         else:
-            print(f"    [!] WARNING: {ip} not found in dataset!")
+            print(f"    [!] WARNING: {ip} not found in dataset (will skip in GT files)")
 
     # Generate ground truth CSVs
     print("[*] Generating ground truth CSV files...")
-    for gt_filename, attacker_ips in ATTACK_GROUND_TRUTH:
+    total_nodes = 0
+    for gt_filename, ip_label_pairs in ATTACK_GROUND_TRUTH:
         out_path = os.path.join(output_base, gt_filename)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
+        written = 0
         with open(out_path, "w") as f:
-            for ip in attacker_ips:
+            for ip, label in ip_label_pairs:
                 if ip in ip_to_index:
-                    f.write(f"{ip_to_index[ip]}\n")
+                    # Write 3-column format: node_uuid (IP address), label, placeholder
+                    # node_uuid must match what create_database_cic_ids_2017.py stores
+                    # in netflow_node_table.node_uuid (which is the IP address itself).
+                    f.write(f"{ip},{label},0\n")
+                    written += 1
                 else:
-                    print(f"    [!] WARNING: {ip} not in dataset for {gt_filename}")
+                    print(f"    [!] WARNING: {ip} not in dataset, skipped for {gt_filename}")
 
-        print(f"    [+] {gt_filename}")
+        total_nodes += written
+        print(f"    [+] {gt_filename} ({written} nodes)")
 
-    print(f"[+] Ground truth files saved to: {os.path.abspath(output_base)}/CIC-IDS-2017/")
+    print(f"[+] {len(ATTACK_GROUND_TRUTH)} ground truth files, {total_nodes} total malicious nodes")
+    print(f"[+] Saved to: {os.path.abspath(output_base)}/CIC-IDS-2017/")
 
 
 if __name__ == "__main__":
