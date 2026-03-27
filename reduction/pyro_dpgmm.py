@@ -21,7 +21,7 @@ def truncate_clusters(means, variances, weights, threshold=0.99):
     
     Returns:
         truncated_means (np.ndarray): Truncated cluster means.
-        truncated_stds (np.ndarray): Truncated cluster standard deviations.
+        truncated_variances (np.ndarray): Truncated cluster variances.
         truncated_weights (np.ndarray): Truncated cluster weights.
     """
     # Normalize weights to ensure they sum to 1
@@ -31,7 +31,7 @@ def truncate_clusters(means, variances, weights, threshold=0.99):
     idx = np.argsort(weights)[::-1]
     w_sorted = weights[idx]
     m_sorted = means[idx]
-    std_sorted = np.sqrt(variances[idx])
+    v_sorted = variances[idx]
 
     # Compute cumulative weights and find the cutoff
     cumulative = np.cumsum(w_sorted)
@@ -39,11 +39,11 @@ def truncate_clusters(means, variances, weights, threshold=0.99):
 
     # Truncate and renormalize weights
     truncated_means = m_sorted[:cut]
-    truncated_stds = std_sorted[:cut]
+    truncated_variances = v_sorted[:cut]
     truncated_weights = w_sorted[:cut]
     truncated_weights = truncated_weights / truncated_weights.sum()  # Renormalize
 
-    return truncated_means, truncated_stds, truncated_weights
+    return truncated_means, truncated_variances, truncated_weights
 
 
 def expected_log_sticks(alpha, beta):
@@ -301,9 +301,13 @@ class PyroDPGMM():
 
         with torch.no_grad():
             means, variances, weights = self.get_params()
-            truncated_means, truncated_stds, truncated_weights = truncate_clusters(means=means, variances=variances, weights=weights)
+            truncated_means, truncated_variances, truncated_weights = truncate_clusters(
+                means=means,
+                variances=variances,
+                weights=weights,
+            )
 
-        return truncated_means, truncated_stds, truncated_weights
+        return truncated_means, truncated_variances, truncated_weights
     
     def get_params(self):
         with torch.no_grad():
@@ -327,7 +331,7 @@ class PyroDPGMM():
         Args:
             threshold (float): Cumulative weight threshold (e.g. 0.999 for 99.9%).
         Returns:
-            truncated_means, truncated_stds, truncated_weights
+            truncated_means, truncated_variances, truncated_weights
         """
         with torch.no_grad():
             # 1) get and normalize
@@ -342,7 +346,7 @@ class PyroDPGMM():
             idx = np.argsort(weights)[::-1]
             w_sorted = weights[idx]
             m_sorted = means[idx]
-            std_sorted = np.sqrt(variances[idx])
+            v_sorted = variances[idx]
 
             # 3) find how many components to keep
             cumulative = np.cumsum(w_sorted)
@@ -351,11 +355,11 @@ class PyroDPGMM():
 
             # 4) truncate and renormalize
             kept_means   = m_sorted[:cut]
-            kept_stds    = std_sorted[:cut]
+            kept_variances = v_sorted[:cut]
             kept_weights = w_sorted[:cut]
             kept_weights = kept_weights / kept_weights.sum()
 
-        return kept_means, kept_stds, kept_weights
+        return kept_means, kept_variances, kept_weights
 
 
     def create_gmm(self, means, covs, weights):        

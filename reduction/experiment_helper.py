@@ -187,12 +187,9 @@ def _coerce_timestamp_array(values, dtype=np.float64):
     return values
 
 
-def _sheather_jones_bandwidth_1d(data, grid_size=1024):
+def _sheather_jones_bandwidth_1d(data):
     """
     Compute a Sheather-Jones-style bandwidth using adaptive quadrature.
-
-    This is the older project implementation. `grid_size` is kept only for
-    signature compatibility and is not used.
     """
     data = np.asarray(data, dtype=np.float64).ravel()
 
@@ -245,58 +242,58 @@ def _validate_long_preprocessing_args(
         raise ValueError("kde_total_weight must be > 0.")
 
 
-# def random_sample_long_merged_edges(
-#     merged_edges,
-#     *,
-#     length_threshold=50000,
-#     sample_length=50000,
-#     random_state=42,
-# ):
-#     """
-#     Randomly downsample only the edges longer than `length_threshold`.
-#     """
-#     print("Random sample preprocess", flush=True)
-#     _validate_long_preprocessing_args(
-#         length_threshold=length_threshold,
-#         sample_length=sample_length,
-#         kde_grid_size=2,
-#         kde_total_weight=1.0,
-#     )
+def random_sample_long_merged_edges(
+    merged_edges,
+    *,
+    length_threshold=50000,
+    sample_length=50000,
+    random_state=42,
+):
+    """
+    Randomly downsample only the edges longer than `length_threshold`.
+    """
+    print("Random sample preprocess", flush=True)
+    _validate_long_preprocessing_args(
+        length_threshold=length_threshold,
+        sample_length=sample_length,
+        kde_grid_size=2,
+        kde_total_weight=1.0,
+    )
 
-#     rng = np.random.default_rng(random_state)
-#     processed_edges = {}
-#     unchanged_count = 0
-#     sampled_count = 0
+    rng = np.random.default_rng(random_state)
+    processed_edges = {}
+    unchanged_count = 0
+    sampled_count = 0
 
-#     for key, timestamps in tqdm(
-#         merged_edges.items(),
-#         total=len(merged_edges),
-#         desc="Random sampling edges",
-#     ):
-#         values = _coerce_timestamp_array(timestamps, dtype=np.float64)
-#         values = values[np.isfinite(values)]
-#         original_length = values.shape[0]
+    for key, timestamps in tqdm(
+        merged_edges.items(),
+        total=len(merged_edges),
+        desc="Random sampling edges",
+    ):
+        values = _coerce_timestamp_array(timestamps, dtype=np.float64)
+        values = values[np.isfinite(values)]
+        original_length = values.shape[0]
 
-#         if original_length == 0:
-#             raise ValueError(f"Edge {key} has no finite timestamps after preprocessing.")
+        if original_length == 0:
+            raise ValueError(f"Edge {key} has no finite timestamps after preprocessing.")
 
-#         if original_length <= length_threshold:
-#             processed_edges[key] = values.reshape(-1, 1)
-#             unchanged_count += 1
-#             continue
+        if original_length <= length_threshold:
+            processed_edges[key] = values.reshape(-1, 1)
+            unchanged_count += 1
+            continue
 
-#         target_length = min(sample_length, original_length)
-#         sampled_idx = rng.choice(original_length, size=target_length, replace=False)
-#         sampled_values = np.sort(values[sampled_idx])
-#         processed_edges[key] = sampled_values.reshape(-1, 1)
-#         sampled_count += 1
+        target_length = min(sample_length, original_length)
+        sampled_idx = rng.choice(original_length, size=target_length, replace=False)
+        sampled_values = np.sort(values[sampled_idx])
+        processed_edges[key] = sampled_values.reshape(-1, 1)
+        sampled_count += 1
 
-#     print(
-#         "Long-series random sampling summary: "
-#         f"unchanged={unchanged_count}, random_sampled={sampled_count}",
-#         flush=True,
-#     )
-#     return processed_edges
+    print(
+        "Long-series random sampling summary: "
+        f"unchanged={unchanged_count}, random_sampled={sampled_count}",
+        flush=True,
+    )
+    return processed_edges
 
 
 def kde_preprocess_long_merged_edges(
@@ -401,13 +398,13 @@ def preprocess_long_merged_edges(
             for key, timestamps in merged_edges.items()
         }
     
-    # elif mode == "random":
-    #     return random_sample_long_merged_edges(
-    #         merged_edges,
-    #         length_threshold=length_threshold,
-    #         sample_length=sample_length,
-    #         random_state=random_state,
-    #     )
+    elif mode == "random":
+        return random_sample_long_merged_edges(
+            merged_edges,
+            length_threshold=length_threshold,
+            sample_length=sample_length,
+            random_state=random_state,
+        )
     elif mode == "kde":
         return kde_preprocess_long_merged_edges(
             merged_edges,
@@ -591,13 +588,13 @@ def fit_batched_gpu_dpgmm(
     kde_total_weight=None,
     kde_grid_padding=0.10,
     batch_size=256,
-    max_iter=300,
+    max_iter=100,
     random_state=42,
     device="cuda",
     dtype=None,
     truncate_threshold=0.99,
     sort_by_length=True,
-):
+    ):
     """
     Fit batched 1D GPU-accelerated DPGMMs from a plain dict of edge timestamps.
 
@@ -894,42 +891,44 @@ def evaluate_enhancement(csv_path, enhanced_edges, merged_edges, args):
 
     visualization_count = 0
     
-    for key, edge in enhanced_edges.items():
+    for key, edge in tqdm(enhanced_edges.items(), total=len(enhanced_edges.values()), desc="evaluating..."):
         all_timestamps = merged_edges[key]
         # print("all timstamps shape: ", all_timestamps.shape, flush=True)
     
-        neg_log_likelihood = edge.compute_average_log_likelihood(all_timestamps)
-        kl_divergence = edge.compute_kl_divergence(all_timestamps)
-        wasserstein_dist = edge.compute_wasserstein_distance(all_timestamps)
-        integrated_square_error = edge.compute_integrated_square_error(all_timestamps)
+        # neg_log_likelihood = edge.compute_average_log_likelihood(all_timestamps)
+        # kl_divergence = edge.compute_kl_divergence(all_timestamps)
+        # wasserstein_dist = edge.compute_wasserstein_distance(all_timestamps)
+        # integrated_square_error = edge.compute_integrated_square_error(all_timestamps)
 
-        if neg_log_likelihood is None or kl_divergence is None:
-            continue
+        # if neg_log_likelihood is None or kl_divergence is None:
+        #     continue
 
-        technique[technique_name]["neg_average_log_likelihood"].append(neg_log_likelihood)
-        technique[technique_name]["kl_divergence"].append(kl_divergence)
-        technique[technique_name]["wasserstein_distance"].append(wasserstein_dist)
+        # technique[technique_name]["neg_average_log_likelihood"].append(neg_log_likelihood)
+        # technique[technique_name]["kl_divergence"].append(kl_divergence)
+        # technique[technique_name]["wasserstein_distance"].append(wasserstein_dist)
         technique[technique_name]["num_clusters"].append(edge.num_clusters)
-        technique[technique_name]["integrated_square_error"].append(integrated_square_error)
+        # technique[technique_name]["integrated_square_error"].append(integrated_square_error)
         if args.visualize and visualization_count < 10:
             visualization_count += 1
             print("Got inside visualization for edge: ", flush=True)
-            edge.visualize_distribution(timestamps=all_timestamps, name=f"./kde_visualizations/{csv_name}_{technique_name}_{edge.u}_{edge.v}.png")
+            visualization_folder = f"./kde_visualizations/{csv_name}_{technique_name}"
+            os.makedirs(f"{visualization_folder}", exist_ok=True)
+            edge.visualize_distribution(timestamps=all_timestamps, name=f"{visualization_folder}/{edge.u}_{edge.v}.png")
 
         # technique[technique_name]["timestamp_count"].append(len(edge.timestamps))
 
-    average_likelihood = average_of_edges(technique[technique_name]["neg_average_log_likelihood"])
+    # average_likelihood = average_of_edges(technique[technique_name]["neg_average_log_likelihood"])
     average_num_clusters = average_of_edges(technique[technique_name]["num_clusters"])
-    average_kl_divergence = average_of_edges(technique[technique_name]["kl_divergence"])
-    average_wasserstein_distance = average_of_edges(technique[technique_name]["wasserstein_distance"])
-    average_integrated_square_error = average_of_edges(technique[technique_name]["integrated_square_error"])
+    # average_kl_divergence = average_of_edges(technique[technique_name]["kl_divergence"])
+    # average_wasserstein_distance = average_of_edges(technique[technique_name]["wasserstein_distance"])
+    # average_integrated_square_error = average_of_edges(technique[technique_name]["integrated_square_error"])
 
-    print(f"=== Results for {csv_name} using {technique_name} ===", flush=True)
-    print(f"{technique_name} average likelihood: ", average_likelihood, flush=True)
-    print(f"{technique_name} average kl divergence: ", average_kl_divergence, flush=True)
+    # print(f"=== Results for {csv_name} using {technique_name} ===", flush=True)
+    # print(f"{technique_name} average likelihood: ", average_likelihood, flush=True)
+    # print(f"{technique_name} average kl divergence: ", average_kl_divergence, flush=True)
     print(f"{technique_name} average num clusters: ", average_num_clusters, flush=True)
-    print(f"{technique_name} average wasserstein distance: ", average_wasserstein_distance, flush=True)
-    print(f"{technique_name} integrated square error: ", average_integrated_square_error, flush=True)
+    # print(f"{technique_name} average wasserstein distance: ", average_wasserstein_distance, flush=True)
+    # print(f"{technique_name} integrated square error: ", average_integrated_square_error, flush=True)
 
 
 def set_adversarial_edge_timestamps(target_start_time, target_end_time, merged_edges, scalers):
