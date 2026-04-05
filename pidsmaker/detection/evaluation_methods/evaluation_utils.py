@@ -1086,28 +1086,68 @@ def compute_tw_labels(cfg):
     log("Computing time-window labels...")
     os.makedirs(out_path, exist_ok=True)
 
-    t_to_node = labelling.get_t2malicious_node(cfg)
-    # test_data = load_data_set(cfg, path=cfg.feat_inference._edge_embeds_dir, split="test")
+    # Per-attack mode: use attack-specific malicious labels and preserve the exact
+    # graph_idx ordering used during inference (sorted edge_embeds/test filenames).
+    per_attack_enabled = getattr(cfg.dataset, "per_attack_test_graphs", False)
+    test_file_to_attack_idx = dict(getattr(cfg.dataset, "test_file_to_attack_idx", []))
+    use_per_attack_mode = per_attack_enabled and len(test_file_to_attack_idx) > 0
 
-    graph_dir = cfg.transformation._graphs_dir
-    test_graphs = get_all_files_from_folders(graph_dir, cfg.dataset.test_files)
+    if use_per_attack_mode:
+        attack_to_t_to_node = labelling.get_t2malicious_node_by_attack(cfg)
+
+        edge_embed_test_dir = os.path.join(cfg.feat_inference._edge_embeds_dir, "test")
+        test_graphs = []
+        graph_attack_indices = []
+        if os.path.isdir(edge_embed_test_dir):
+            for f in sorted(os.listdir(edge_embed_test_dir)):
+                if "__" not in f:
+                    continue
+                parent_folder, tw_part = f.split("__", 1)
+                tw_name = tw_part.replace(".TemporalData.simple", "")
+                test_graphs.append(tw_name)
+                graph_attack_indices.append(test_file_to_attack_idx.get(parent_folder, None))
+        else:
+            # Fallback to graph paths if edge embeds are unavailable
+            graph_dir = cfg.transformation._graphs_dir
+            graph_paths = get_all_files_from_folders(graph_dir, cfg.dataset.test_files)
+            for path in graph_paths:
+                test_graphs.append(os.path.basename(path))
+                parent_folder = os.path.basename(os.path.dirname(path))
+                graph_attack_indices.append(test_file_to_attack_idx.get(parent_folder, None))
+    else:
+        t_to_node = labelling.get_t2malicious_node(cfg)
+        graph_dir = cfg.transformation._graphs_dir
+        test_graphs = [os.path.basename(path) for path in get_all_files_from_folders(graph_dir, cfg.dataset.test_files)]
+        graph_attack_indices = [None] * len(test_graphs)
 
     num_found_event_labels = 0
     tw_to_malicious_nodes = defaultdict(list)
     for i, tw in enumerate(test_graphs):
-        date = tw.split("/")[-1]
+        date = tw
         start, end = (
             datetime_to_ns_time_US_handle_nano(date.split("~")[0]),
             datetime_to_ns_time_US_handle_nano(date.split("~")[1]),
         )
 
-        for t, node_ids in t_to_node.items():
+        if use_per_attack_mode:
+            attack_idx = graph_attack_indices[i]
+            if attack_idx is None:
+                continue
+            iter_map = attack_to_t_to_node.get(attack_idx, {})
+        else:
+            iter_map = t_to_node
+
+        for t, node_ids in iter_map.items():
             if start < t < end:
                 for node_id in node_ids:  # src, dst, or [src, dst] malicious nodes
                     tw_to_malicious_nodes[i].append(node_id)
                 num_found_event_labels += 1
 
-    log(f"Found {num_found_event_labels}/{len(t_to_node)} edge labels.")
+    if use_per_attack_mode:
+        total_labels = sum(len(v) for v in attack_to_t_to_node.values())
+    else:
+        total_labels = len(t_to_node)
+    log(f"Found {num_found_event_labels}/{total_labels} edge labels.")
     torch.save(tw_to_malicious_nodes, out_file)
 
     # Used to retrieve node ID from node raw UUID
@@ -1128,6 +1168,30 @@ def compute_tw_labels(cfg):
         tw_to_malicious_nodes[tw] = node_to_count
 
     return tw_to_malicious_nodes
+
+
+def build_attack_to_tw_indices(cfg):
+    """Build mapping attack_idx -> list[graph_idx] using edge_embed test ordering.
+
+    The returned graph indices align with the `graph_idx` used in inference and
+    the prefixed edge-loss filenames (`00012_<start>~<end>.csv`).
+    """
+    test_file_to_attack_idx = dict(getattr(cfg.dataset, "test_file_to_attack_idx", []))
+    attack_to_indices = defaultdict(list)
+
+    edge_embed_test_dir = os.path.join(cfg.feat_inference._edge_embeds_dir, "test")
+    if not os.path.isdir(edge_embed_test_dir):
+        return dict(attack_to_indices)
+
+    for graph_idx, f in enumerate(sorted(os.listdir(edge_embed_test_dir))):
+        if "__" not in f:
+            continue
+        parent_folder = f.split("__", 1)[0]
+        attack_idx = test_file_to_attack_idx.get(parent_folder, None)
+        if attack_idx is not None:
+            attack_to_indices[attack_idx].append(graph_idx)
+
+    return dict(attack_to_indices)
 
 
 def datetime_to_ns_time_US_handle_nano(nano_date_str):

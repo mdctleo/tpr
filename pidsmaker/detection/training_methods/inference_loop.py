@@ -41,6 +41,7 @@ def test_edge_level(
     model_epoch_file,
     cfg,
     device,
+    graph_idx=None,
 ):
     model.eval()
 
@@ -84,7 +85,10 @@ def test_edge_level(
 
     logs_dir = os.path.join(cfg.training._edge_losses_dir, split, model_epoch_file)
     os.makedirs(logs_dir, exist_ok=True)
-    csv_file = os.path.join(logs_dir, time_interval + ".csv")
+    # Include graph_idx in filename to prevent overwrites when per-attack graphs
+    # share the same time interval (e.g., CIC_IDS_2017_PER_ATTACK)
+    idx_prefix = f"{graph_idx:05d}_" if graph_idx is not None else ""
+    csv_file = os.path.join(logs_dir, idx_prefix + time_interval + ".csv")
 
     edge_df.to_csv(csv_file, sep=",", header=True, index=False, encoding="utf-8")
     return all_losses
@@ -98,6 +102,7 @@ def test_node_level(
     model_epoch_file,
     cfg,
     device,
+    graph_idx=None,
 ):
     model.eval()
 
@@ -261,7 +266,10 @@ def test_node_level(
 
     logs_dir = os.path.join(cfg.training._edge_losses_dir, split, model_epoch_file)
     os.makedirs(logs_dir, exist_ok=True)
-    csv_file = os.path.join(logs_dir, time_interval + ".csv")
+    # Include graph_idx in filename to prevent overwrites when per-attack graphs
+    # share the same time interval (e.g., CIC_IDS_2017_PER_ATTACK)
+    idx_prefix = f"{graph_idx:05d}_" if graph_idx is not None else ""
+    csv_file = os.path.join(logs_dir, idx_prefix + time_interval + ".csv")
 
     df = pd.DataFrame(node_list)
     df.to_csv(csv_file, sep=",", header=True, index=False, encoding="utf-8")
@@ -333,14 +341,22 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                     # Store batch timing results under evaluation task path
                     timing_output_dir = os.path.join(cfg.evaluation._task_path, "batch_timing")
                     
+                    # Get dataset-specific dimensions for msg tensor edge type extraction
+                    # CIC-IDS: (1, 3), DARPA E3: (3, 10), etc.
+                    _node_type_dim = getattr(cfg.dataset, 'num_node_types', 8)
+                    _edge_type_dim = getattr(cfg.dataset, 'num_edge_types', 16)
+                    
                     batch_tracker = BatchTimingTracker(
                         kde_eligible_edges=kde_eligible_edges,
                         edge_occurrence_counts=edge_occurrence_counts,
                         output_dir=timing_output_dir,
                         device=device,
+                        node_type_dim=_node_type_dim,
+                        edge_type_dim=_edge_type_dim,
                     )
                     log(f"Inference batch timing enabled ({config_type} config) with {len(kde_eligible_edges)} KDE-eligible edges")
                     log(f"Inference batch timing results will be saved to: {timing_output_dir}")
+                    log(f"Dataset dimensions: node_type_dim={_node_type_dim}, edge_type_dim={_edge_type_dim}")
             else:
                 log(f"Inference batch timing enabled but no kde_vectors_dir configured")
         except Exception as e:
@@ -360,6 +376,7 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
 
         all_losses = []
         batch_idx = 0
+        graph_idx = 0
         for graphs in dataset:
             for g in log_tqdm(graphs, desc=desc, logging=logging):
                 g.to(device=device)
@@ -377,6 +394,7 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                     model_epoch_file=model_epoch_file,
                     cfg=cfg,
                     device=device,
+                    graph_idx=graph_idx,
                 )
                 all_losses.extend(losses)
                 tpb.append(time.time() - s)
@@ -428,6 +446,8 @@ def main(cfg, model, val_data, test_data, epoch, split, logging=True):
                 g.to("cpu")  # Move graph back to CPU to free GPU memory for next batch
                 if use_cuda:
                     torch.cuda.empty_cache()
+
+                graph_idx += 1
 
         _, peak_inference_cpu_memory = tracemalloc.get_traced_memory()
         peak_inference_cpu_mem = max(peak_inference_cpu_mem, peak_inference_cpu_memory / (1024**3))

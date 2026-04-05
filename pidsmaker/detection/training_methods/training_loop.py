@@ -113,15 +113,23 @@ def main(cfg):
                 # Store batch timing results under evaluation task path
                 timing_output_dir = os.path.join(cfg.evaluation._task_path, "batch_timing")
                 
+                # Get dataset-specific dimensions for msg tensor edge type extraction
+                # CIC-IDS: (1, 3), DARPA E3: (3, 10), etc.
+                _node_type_dim = getattr(cfg.dataset, 'num_node_types', 8)
+                _edge_type_dim = getattr(cfg.dataset, 'num_edge_types', 16)
+                
                 batch_tracker = init_global_tracker(
                     dataset_name=cfg.dataset.name,
                     kde_vectors_dir=kde_vectors_dir,
                     output_dir=timing_output_dir,
                     device=device,
                     min_occurrences=min_occurrences,
+                    node_type_dim=_node_type_dim,
+                    edge_type_dim=_edge_type_dim,
                 )
                 log(f"Batch timing tracker initialized for {cfg.dataset.name} ({config_type} config)")
                 log(f"Using KDE vectors from: {kde_vectors_dir} with min_occurrences={min_occurrences}")
+                log(f"Dataset dimensions: node_type_dim={_node_type_dim}, edge_type_dim={_edge_type_dim}")
                 log(f"Batch timing results will be saved to: {timing_output_dir}")
             else:
                 log(f"Batch timing enabled but no kde_vectors_dir configured (need kde_params.kde_vectors_dir or batch_timing_vectors_dir)")

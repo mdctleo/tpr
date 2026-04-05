@@ -333,6 +333,10 @@ def gen_edge_fused_tw(indexid2msg, cfg):
                     )
                     events_list.append(event_tuple)
 
+            if len(events_list) == 0:
+                log(f"Warning: No events matched include_edge_type filter for {start}~{stop}. Skipping.")
+                continue
+
             start_time = events_list[0][-2]
             temp_list = []
             BATCH = 1024
@@ -493,14 +497,100 @@ def gen_edge_fused_tw(indexid2msg, cfg):
                         break
 
 
+def split_test_graphs_per_attack(cfg):
+    """After normal day-based graph construction, split test graphs into per-attack folders.
+
+    For each test attack in CIC_IDS_2017_PER_ATTACK (or any config with
+    per_attack_test_graphs=True), reads the already-built day graph files and
+    creates a new graph per attack by removing edges that belong to *other* attacks
+    on the same day.  Benign traffic (outside any attack window) is retained in all.
+
+    The resulting per-attack folders (e.g. graph_5_dos_slowloris/) are what the rest
+    of the pipeline consumes via cfg.dataset.test_files.
+    """
+    graphs_dir = cfg.construction._graphs_dir
+    test_file_to_attack_idx = dict(getattr(cfg.dataset, 'test_file_to_attack_idx', []))
+
+    # Build a map: day -> list of (attack_name, start_ns, end_ns)
+    day_to_attack_windows = defaultdict(list)
+    year_month = cfg.dataset.year_month
+    for attack_tuple in cfg.dataset.attack_to_time_window:
+        attack_name = attack_tuple[0]
+        start_str = attack_tuple[1]
+        end_str = attack_tuple[2]
+        # Parse day from start string (e.g. "2017-07-05 ..." -> day 5)
+        day = int(start_str.split("-")[2].split(" ")[0])
+        start_ns = datetime_to_ns_time_US(start_str)
+        end_ns = datetime_to_ns_time_US(end_str)
+        day_to_attack_windows[day].append((attack_name, start_ns, end_ns))
+
+    for test_file in cfg.dataset.test_files:
+        attack_idx = test_file_to_attack_idx.get(test_file)
+        if attack_idx is None:
+            log(f"Warning: No attack mapping for {test_file}, skipping per-attack split")
+            continue
+
+        attack_tuple = cfg.dataset.attack_to_time_window[attack_idx]
+        target_attack_name = attack_tuple[0]
+        target_start_ns = datetime_to_ns_time_US(attack_tuple[1])
+        target_end_ns = datetime_to_ns_time_US(attack_tuple[2])
+
+        # Parse day from test file name (e.g. "graph_5_dos_slowloris" -> 5)
+        day = int(test_file.split("_")[1])
+        all_windows_for_day = day_to_attack_windows[day]
+
+        # Source day folder (built by gen_edge_fused_tw)
+        src_day_dir = os.path.join(graphs_dir, f"graph_{day}")
+        if not os.path.isdir(src_day_dir):
+            log(f"Warning: Source day dir {src_day_dir} not found, skipping {test_file}")
+            continue
+
+        # Destination per-attack folder
+        dst_dir = os.path.join(graphs_dir, test_file)
+        os.makedirs(dst_dir, exist_ok=True)
+
+        tw_files = sorted(os.listdir(src_day_dir))
+        log(f"Splitting {test_file} from {src_day_dir} ({len(tw_files)} time windows)...")
+
+        for tw_filename in tw_files:
+            src_path = os.path.join(src_day_dir, tw_filename)
+            orig_graph = torch.load(src_path)
+
+            # Build filtered graph: keep only edges that are
+            # (a) benign (not in any attack window), or
+            # (b) belong to the target attack
+            filtered_graph = nx.MultiDiGraph()
+
+            # Copy all nodes (nodes don't change per attack)
+            for node, data in orig_graph.nodes(data=True):
+                filtered_graph.add_node(node, **data)
+
+            # Filter edges
+            for u, v, k, edata in orig_graph.edges(keys=True, data=True):
+                t = edata.get("time", 0)
+                in_other_attack = False
+                for atk_name, atk_start, atk_end in all_windows_for_day:
+                    if atk_name != target_attack_name and atk_start <= t <= atk_end:
+                        in_other_attack = True
+                        break
+                if not in_other_attack:
+                    filtered_graph.add_edge(u, v, key=k, **edata)
+
+            dst_path = os.path.join(dst_dir, tw_filename)
+            torch.save(filtered_graph, dst_path)
+
+        log(f"  -> Saved per-attack graphs to {dst_dir}")
+
+
 def main(cfg):
     """Main construction pipeline: build graphs from database and save metadata.
 
     Execution flow:
     1. Extract node features from database (compute_indexid2msg)
     2. Build time-windowed graphs from events (gen_edge_fused_tw)
-    3. Compute dataset split node memberships (compute_and_save_split2nodes)
-    4. Save filtered node features (save_indexid2msg)
+    3. Optionally split test graphs per attack (per_attack_test_graphs flag)
+    4. Compute dataset split node memberships (compute_and_save_split2nodes)
+    5. Save filtered node features (save_indexid2msg)
 
     Args:
         cfg: Configuration object with all construction parameters
@@ -510,6 +600,11 @@ def main(cfg):
     indexid2msg = compute_indexid2msg(cfg=cfg)
 
     gen_edge_fused_tw(indexid2msg=indexid2msg, cfg=cfg)
+
+    # For per-attack configs, split day-based test graphs into per-attack folders
+    if getattr(cfg.dataset, 'per_attack_test_graphs', False):
+        log("Per-attack test graphs enabled: splitting test graphs by attack...")
+        split_test_graphs_per_attack(cfg)
 
     split2nodes = compute_and_save_split2nodes(cfg)
     save_indexid2msg(indexid2msg, split2nodes, cfg)

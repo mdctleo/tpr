@@ -1,0 +1,15 @@
+_include_yml: orthrus_non_snooped
+
+# CIC-IDS-2017 has only netflow nodes (IP addresses).
+# subject and file node types do not exist in this dataset.
+construction:
+  node_label_features:
+    netflow: remote_ip, remote_port
+
+training:
+  enable_batch_timing: true     # Enable timing instrumentation for KDE-eligible batches
+  batch_timing_vectors_dir: "kde_vectors"  # Path to KDE vectors for taint identification (baseline config)
+  batch_timing_min_occurrences: 10         # Min occurrences threshold for taint tracking
+
+evaluation:
+  ground_truth_version: none

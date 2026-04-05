@@ -1,0 +1,46 @@
+# KAIROS with KDE time encoding using raw timestamps for CIC-IDS-2017
+# Based on kairos_kde_ts.yml with CIC-IDS-2017 specific settings
+#
+# CIC-IDS-2017 has only netflow nodes (IP addresses).
+# subject and file node types do not exist in this dataset.
+
+_include_yml: kairos
+
+# CIC-IDS-2017 specific construction settings
+construction:
+  node_label_features:
+    netflow: remote_ip, remote_port
+
+# KDE-specific parameters for raw timestamp encoding
+# Uses BayesianGaussianMixtureGPU (GPU-accelerated variational Bayesian GMM)
+# with MaxAbsScaler and k-means initialisation.
+# CIC-IDS datasets get a 12:30 PM noon anchor for cross-day consistency.
+# Fallback (base KAIROS encoder) for edges with < 10 timestamps.
+kde_params:
+  rkhs_dim: 20
+  min_occurrences: 10
+  bandwidth: 'scott'
+  n_quadrature_points: 10
+  time_dim: 50
+  kde_vectors_dir: kde_vectors  # directory containing precomputed {DATASET}_kde_vectors.pt files
+  feat_inference_dir: artifacts_cicids  # base artifacts dir that contains feat_inference/
+  use_precomputed: true          # use offline precomputed RKHS vectors (via kde_computation.py)
+  # BayesianGaussianMixtureGPU parameters
+  n_components: 100              # DP truncation level K (stick-breaking)
+  gamma: 5.0                     # DP concentration parameter
+  max_iter: 300                  # max CAVI iterations per batch
+  tol: 1.0e-4                    # convergence tolerance
+  patience: 20                   # early-stop patience
+  n_init: 1                      # number of independent restarts
+  init_method: 'kmeans'          # 'kmeans' (default) or 'linear'
+  truncate_threshold: 0.99       # cumulative weight cutoff for pruning components
+  max_n_per_edge: 50000          # subsample edges longer than this
+  chunk_size: 256                # edges processed per GPU batch
+
+# Batch timing parameters (for performance analysis of KDE-eligible edges)
+# This enables instrumentation to measure timing impact of tainted batches
+training:
+  enable_batch_timing: true      # Set to true to enable batch timing instrumentation
+
+evaluation:
+  ground_truth_version: none

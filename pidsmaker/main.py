@@ -354,8 +354,8 @@ if __name__ == "__main__":
     cfg = get_yml_cfg(args)
     wandb.config.update(clean_cfg_for_log(cfg))
     
-    # Apply KDE patches if using kde configuration
-    if KDE_PATCH_AVAILABLE and 'kde' in args.model.lower():
+    # Apply KDE patches if config has kde_params (covers kde_ts, kde_diff, and red configs)
+    if KDE_PATCH_AVAILABLE and hasattr(cfg, 'kde_params') and getattr(cfg.kde_params, 'use_precomputed', False):
         patch_for_kde_time_encoding(cfg)
 
     main(cfg, project=args.project, exp=exp_name, sweep_id=args.sweep_id)

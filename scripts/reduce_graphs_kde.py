@@ -35,7 +35,6 @@ Example:
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -53,6 +52,43 @@ sys.path.insert(0, PROJECT_ROOT)
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+# Dataset-specific dimension configurations
+# Maps dataset names to (num_node_types, num_edge_types)
+DATASET_DIMENSIONS = {
+    # DARPA TC datasets (default)
+    "CADETS_E3": (3, 10),
+    "CADETS_E5": (3, 10),
+    "CLEARSCOPE_E3": (3, 10),
+    "THEIA_E3": (3, 10),
+    "THEIA_E5": (3, 10),
+    # OPTC datasets
+    "optc_h051": (3, 10),
+    "optc_h201": (3, 10),
+    "optc_h501": (3, 10),
+    # CIC-IDS-2017 (netflow only: 1 node type, 3 edge types: TCP, UDP, Other)
+    "CIC_IDS_2017": (1, 3),
+    "CIC_IDS_2017_PER_ATTACK": (1, 3),
+}
+
+
+def get_dataset_dimensions(dataset_name: str) -> Tuple[int, int]:
+    """
+    Get node_type_dim and edge_type_dim for a dataset.
+    
+    Args:
+        dataset_name: Name of the dataset
+        
+    Returns:
+        Tuple of (num_node_types, num_edge_types)
+    """
+    if dataset_name in DATASET_DIMENSIONS:
+        return DATASET_DIMENSIONS[dataset_name]
+    else:
+        # Default to DARPA E3 dimensions
+        log(f"WARNING: Unknown dataset {dataset_name}, using default dimensions (3, 10)")
+        return (3, 10)
 
 
 def extract_edge_type_from_msg(msg: torch.Tensor, node_type_dim: int = 8, edge_type_dim: int = 16) -> torch.Tensor:
@@ -118,7 +154,7 @@ def load_kde_eligible_edges(kde_vectors_dir: str, dataset_name: str, device: Opt
 
 
 def find_best_hash_dir(feat_inference_base: str) -> str:
-    """Find the hash directory with the largest disk usage."""
+    """Find the most recently modified hash directory (matches kde_computation.py's selection)."""
     if not os.path.isdir(feat_inference_base):
         raise FileNotFoundError(f"feat_inference base directory not found: {feat_inference_base}")
 
@@ -130,10 +166,8 @@ def find_best_hash_dir(feat_inference_base: str) -> str:
     if not subdirs:
         raise FileNotFoundError(f"No hash directories found in {feat_inference_base}")
 
-    result = subprocess.run(["du", "-s"] + subdirs, capture_output=True, text=True)
-    lines = [l.split(maxsplit=1) for l in result.stdout.strip().split("\n") if l.strip()]
-    best = max(lines, key=lambda x: int(x[0]))
-    return best[1].strip()
+    best = max(subdirs, key=lambda d: os.path.getmtime(d))
+    return best
 
 
 def load_split_data(edge_embeds_dir: str, split: str):
@@ -159,6 +193,8 @@ def load_split_data(edge_embeds_dir: str, split: str):
 def reduce_graph_kde(
     data, 
     kde_eligible_edges: Set[Tuple[int, int, int]],
+    node_type_dim: int = 3,
+    edge_type_dim: int = 10,
 ) -> Tuple[object, Dict]:
     """
     Reduce a graph by collapsing ONLY KDE-eligible edges.
@@ -170,6 +206,8 @@ def reduce_graph_kde(
     Args:
         data: TemporalData object with src, dst, t, msg, y, edge_type attributes
         kde_eligible_edges: Set of (src, dst, edge_type) tuples that have KDE vectors
+        node_type_dim: Number of node type dimensions for the dataset
+        edge_type_dim: Number of edge type dimensions for the dataset
         
     Returns:
         Tuple of (reduced_data, reduction_stats)
@@ -182,7 +220,7 @@ def reduce_graph_kde(
     
     # Get edge types from msg tensor (edge_type is embedded in msg, not a separate attribute)
     if hasattr(data, 'msg') and data.msg is not None:
-        edge_types = extract_edge_type_from_msg(msg)
+        edge_types = extract_edge_type_from_msg(msg, node_type_dim, edge_type_dim)
     elif hasattr(data, 'edge_type') and data.edge_type is not None:
         # Fallback: edge_type is a separate attribute
         edge_type = data.edge_type
@@ -271,6 +309,8 @@ def reduce_split(
     split: str, 
     output_dir: str, 
     kde_eligible_edges: Set[Tuple[int, int, int]],
+    node_type_dim: int = 3,
+    edge_type_dim: int = 10,
 ):
     """Reduce all graphs in a split."""
     split_files = load_split_data(edge_embeds_dir, split)
@@ -281,7 +321,7 @@ def reduce_split(
     total_stats = defaultdict(int)
     
     for filename, data in split_files:
-        reduced_data, stats = reduce_graph_kde(data, kde_eligible_edges)
+        reduced_data, stats = reduce_graph_kde(data, kde_eligible_edges, node_type_dim, edge_type_dim)
         
         # Save reduced graph
         output_path = os.path.join(output_split_dir, filename)
@@ -321,6 +361,13 @@ def main():
     parser.add_argument('--splits', type=str, nargs='+', default=['train', 'val'],
                         help='Splits to process (default: train, val - test is kept unreduced)')
     parser.add_argument('--cpu', action='store_true', help='Force CPU usage')
+    parser.add_argument('--feat_hash', type=str, default=None,
+                        help='Specific feat_inference hash directory to process (default: latest)')
+    parser.add_argument('--all_hashes', action='store_true',
+                        help='Process ALL feat_inference hash directories (not just the latest)')
+    parser.add_argument('--symlink_stages', action='store_true',
+                        help='Symlink construction/transformation/featurization from source artifacts_dir '
+                             'into the reduced output dir so the pipeline can find all prior stages')
     
     args = parser.parse_args()
     
@@ -335,6 +382,10 @@ def main():
     log(f"Using device: {device}")
     log("=" * 70)
     
+    # Get dataset-specific dimensions
+    node_type_dim, edge_type_dim = get_dataset_dimensions(args.dataset)
+    log(f"Dataset dimensions: node_type_dim={node_type_dim}, edge_type_dim={edge_type_dim}")
+    
     # Load KDE-eligible edges
     kde_eligible_edges = load_kde_eligible_edges(args.kde_vectors_dir, args.dataset, device)
     
@@ -345,79 +396,144 @@ def main():
     
     log(f"KDE-eligible edges: {len(kde_eligible_edges)}")
     
-    # Find input directory
+    # Find input directory / directories
     feat_inference_base = os.path.join(args.artifacts_dir, "feat_inference", args.dataset, "feat_inference")
-    hash_dir = find_best_hash_dir(feat_inference_base)
-    edge_embeds_dir = os.path.join(hash_dir, "edge_embeds")
     
-    log(f"Input directory: {edge_embeds_dir}")
+    if args.all_hashes:
+        # Process ALL hash directories
+        hash_dirs = [
+            os.path.join(feat_inference_base, d)
+            for d in os.listdir(feat_inference_base)
+            if os.path.isdir(os.path.join(feat_inference_base, d))
+        ]
+        if not hash_dirs:
+            log("ERROR: No hash directories found.")
+            sys.exit(1)
+        log(f"Processing ALL {len(hash_dirs)} hash directories")
+    elif args.feat_hash:
+        # Process a specific hash (exact or prefix match)
+        specific = os.path.join(feat_inference_base, args.feat_hash)
+        if os.path.isdir(specific):
+            hash_dirs = [specific]
+        else:
+            # Try prefix match
+            matches = [
+                os.path.join(feat_inference_base, d)
+                for d in os.listdir(feat_inference_base)
+                if d.startswith(args.feat_hash) and os.path.isdir(os.path.join(feat_inference_base, d))
+            ]
+            if not matches:
+                log(f"ERROR: No hash directory matching '{args.feat_hash}' found under {feat_inference_base}")
+                sys.exit(1)
+            if len(matches) > 1:
+                log(f"ERROR: Ambiguous prefix '{args.feat_hash}' matches multiple dirs: {matches}")
+                sys.exit(1)
+            hash_dirs = matches
+    else:
+        # Process only the latest (default)
+        hash_dirs = [find_best_hash_dir(feat_inference_base)]
     
-    # Setup output directory (parallel to the original, with suffix)
-    # e.g., artifacts/feat_inference_reduced/DATASET/feat_inference/HASH/edge_embeds/
-    output_base = args.artifacts_dir.rstrip('/') + f"{args.output_suffix}"
-    output_dir = edge_embeds_dir.replace(args.artifacts_dir, output_base)
+    for hash_dir in hash_dirs:
+        hash_name = os.path.basename(hash_dir)
+        log(f"\n{'='*70}")
+        log(f"Processing hash: {hash_name}")
+        log(f"{'='*70}")
+        edge_embeds_dir = os.path.join(hash_dir, "edge_embeds")
     
-    log(f"Output directory: {output_dir}")
-    os.makedirs(output_dir, exist_ok=True)
+        log(f"Input directory: {edge_embeds_dir}")
     
-    # Process each split (reduce train/val, copy test unchanged)
-    all_stats = {}
-    for split in args.splits:
-        log(f"\nProcessing {split} split...")
-        try:
-            stats = reduce_split(edge_embeds_dir, split, output_dir, kde_eligible_edges)
-            all_stats[split] = stats
+        # Setup output directory (parallel to the original, with suffix)
+        # e.g., artifacts/feat_inference_reduced/DATASET/feat_inference/HASH/edge_embeds/
+        output_base = args.artifacts_dir.rstrip('/') + f"{args.output_suffix}"
+        output_dir = edge_embeds_dir.replace(args.artifacts_dir, output_base)
+    
+        log(f"Output directory: {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
+    
+        # Process each split (reduce train/val, copy test unchanged)
+        all_stats = {}
+        for split in args.splits:
+            log(f"\nProcessing {split} split...")
+            try:
+                stats = reduce_split(edge_embeds_dir, split, output_dir, kde_eligible_edges, node_type_dim, edge_type_dim)
+                all_stats[split] = stats
             
-            log(f"  {split} reduction complete:")
-            log(f"    Original edges: {stats['total_original_edges']:,}")
-            log(f"    Reduced edges:  {stats['total_reduced_edges']:,}")
-            log(f"    Edges removed:  {stats['total_edges_removed']:,}")
-            log(f"    KDE edges collapsed: {stats['total_kde_edges_collapsed']:,}")
-            log(f"    Reduction ratio: {stats['overall_reduction_ratio']:.2f}%")
-        except FileNotFoundError as e:
-            log(f"  WARNING: Skipping {split} - {e}")
+                log(f"  {split} reduction complete:")
+                log(f"    Original edges: {stats['total_original_edges']:,}")
+                log(f"    Reduced edges:  {stats['total_reduced_edges']:,}")
+                log(f"    Edges removed:  {stats['total_edges_removed']:,}")
+                log(f"    KDE edges collapsed: {stats['total_kde_edges_collapsed']:,}")
+                log(f"    Reduction ratio: {stats['overall_reduction_ratio']:.2f}%")
+            except FileNotFoundError as e:
+                log(f"  WARNING: Skipping {split} - {e}")
     
-    # Copy test split unchanged (if not already processed)
-    if 'test' not in args.splits:
-        test_src = os.path.join(edge_embeds_dir, 'test')
-        test_dst = os.path.join(output_dir, 'test')
-        if os.path.isdir(test_src) and not os.path.exists(test_dst):
-            log(f"\nCopying test split unchanged...")
-            import shutil
-            shutil.copytree(test_src, test_dst)
-            log(f"  Test split copied to {test_dst}")
+        # Copy test split unchanged (if not already processed)
+        if 'test' not in args.splits:
+            test_src = os.path.join(edge_embeds_dir, 'test')
+            test_dst = os.path.join(output_dir, 'test')
+            if os.path.isdir(test_src) and not os.path.exists(test_dst):
+                log(f"\nCopying test split unchanged...")
+                import shutil
+                shutil.copytree(test_src, test_dst)
+                log(f"  Test split copied to {test_dst}")
     
-    # Save summary
-    summary_file = os.path.join(output_dir, "reduction_summary.json")
-    summary = {
-        'dataset': args.dataset,
-        'kde_eligible_edges': len(kde_eligible_edges),
-        'input_dir': edge_embeds_dir,
-        'output_dir': output_dir,
-        'splits': all_stats,
-    }
+        # Save summary
+        summary_file = os.path.join(output_dir, "reduction_summary.json")
+        summary = {
+            'dataset': args.dataset,
+            'kde_eligible_edges': len(kde_eligible_edges),
+            'input_dir': edge_embeds_dir,
+            'output_dir': output_dir,
+            'splits': all_stats,
+        }
     
-    with open(summary_file, 'w') as f:
-        json.dump(summary, f, indent=2)
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
     
-    log(f"\nSummary saved to {summary_file}")
+        log(f"\nSummary saved to {summary_file}")
     
-    # Overall summary
-    log("\n" + "=" * 70)
-    log("REDUCTION SUMMARY")
-    log("=" * 70)
+        # Overall summary
+        log("\n" + "=" * 70)
+        log("REDUCTION SUMMARY")
+        log("=" * 70)
     
-    total_original = sum(s.get('total_original_edges', 0) for s in all_stats.values())
-    total_reduced = sum(s.get('total_reduced_edges', 0) for s in all_stats.values())
-    total_kde_collapsed = sum(s.get('total_kde_edges_collapsed', 0) for s in all_stats.values())
+        total_original = sum(s.get('total_original_edges', 0) for s in all_stats.values())
+        total_reduced = sum(s.get('total_reduced_edges', 0) for s in all_stats.values())
+        total_kde_collapsed = sum(s.get('total_kde_edges_collapsed', 0) for s in all_stats.values())
     
-    log(f"Total original edges: {total_original:,}")
-    log(f"Total reduced edges:  {total_reduced:,}")
-    log(f"Total KDE edges collapsed: {total_kde_collapsed:,}")
-    log(f"Overall reduction: {(total_original - total_reduced) / total_original * 100:.2f}%" if total_original > 0 else "N/A")
+        log(f"Total original edges: {total_original:,}")
+        log(f"Total reduced edges:  {total_reduced:,}")
+        log(f"Total KDE edges collapsed: {total_kde_collapsed:,}")
+        log(f"Overall reduction: {(total_original - total_reduced) / total_original * 100:.2f}%" if total_original > 0 else "N/A")
     
-    log("\nNote: Only KDE-eligible edges (>= 10 timestamps) were collapsed.")
-    log("Non-KDE edges are preserved as-is to maintain their individual timestamps.")
+        log("\nNote: Only KDE-eligible edges (>= 10 timestamps) were collapsed.")
+        log("Non-KDE edges are preserved as-is to maintain their individual timestamps.")
+
+        # Write done.txt marker so the pipeline recognizes this stage as complete
+        done_file = os.path.join(os.path.dirname(edge_embeds_dir.replace(args.artifacts_dir, output_base)), "done.txt")
+        os.makedirs(os.path.dirname(done_file), exist_ok=True)
+        with open(done_file, 'w') as f:
+            f.write(f"Reduced from {args.artifacts_dir} with KDE vectors from {args.kde_vectors_dir}\n")
+        log(f"Written done.txt marker: {done_file}")
+
+    # Symlink prior pipeline stages from source artifacts_dir into the reduced output dir
+    if args.symlink_stages:
+        output_base = args.artifacts_dir.rstrip('/') + f"{args.output_suffix}"
+        stages_to_link = ['construction', 'transformation', 'featurization']
+        log(f"\n{'='*70}")
+        log("Symlinking prior pipeline stages into reduced output dir")
+        log(f"{'='*70}")
+        for stage in stages_to_link:
+            src = os.path.abspath(os.path.join(args.artifacts_dir, stage))
+            dst = os.path.join(output_base, stage)
+            if os.path.exists(dst) or os.path.islink(dst):
+                log(f"  {stage}: already exists at {dst}, skipping")
+            elif os.path.isdir(src):
+                os.symlink(src, dst)
+                log(f"  {stage}: symlinked {dst} -> {src}")
+            else:
+                log(f"  {stage}: source not found at {src}, skipping")
+        log("Done. The reduced artifacts dir is now ready for --force_restart batching")
 
 
 if __name__ == "__main__":

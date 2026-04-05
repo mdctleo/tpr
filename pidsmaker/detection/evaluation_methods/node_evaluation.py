@@ -59,7 +59,12 @@ def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
     Returns:
         dict: Contains metrics, predictions, scores, and visualization data
     """
-    ground_truth_nids, ground_truth_paths = get_ground_truth_nids(cfg)
+    ground_truth_override = kwargs.get("ground_truth_nids", None)
+    if ground_truth_override is not None:
+        ground_truth_nids = set(map(int, ground_truth_override))
+        ground_truth_paths = {}
+    else:
+        ground_truth_nids, ground_truth_paths = get_ground_truth_nids(cfg)
     log(f"Loading data from {test_tw_path}...")
 
     threshold_method = cfg.evaluation.node_evaluation.threshold_method
@@ -73,8 +78,14 @@ def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
     node_to_max_loss_tw = {}
     node_to_max_loss = defaultdict(int)
 
+    selected_tw_indices = kwargs.get("selected_tw_indices", None)
+    if selected_tw_indices is not None:
+        selected_tw_indices = set(selected_tw_indices)
+
     filelist = listdir_sorted(test_tw_path)
-    for tw, file in enumerate(log_tqdm(sorted(filelist), desc="Compute labels")):
+    for tw, file in enumerate(log_tqdm(filelist, desc="Compute labels")):
+        if selected_tw_indices is not None and tw not in selected_tw_indices:
+            continue
         file = os.path.join(test_tw_path, file)
         df = pd.read_csv(file).to_dict(orient="records")
         for line in df:
@@ -129,7 +140,12 @@ def get_node_predictions(val_tw_path, test_tw_path, cfg, **kwargs):
 
 
 def get_node_predictions_node_level(val_tw_path, test_tw_path, cfg, **kwargs):
-    ground_truth_nids, ground_truth_paths = get_ground_truth_nids(cfg)
+    ground_truth_override = kwargs.get("ground_truth_nids", None)
+    if ground_truth_override is not None:
+        ground_truth_nids = set(map(int, ground_truth_override))
+        ground_truth_paths = {}
+    else:
+        ground_truth_nids, ground_truth_paths = get_ground_truth_nids(cfg)
     log(f"Loading data from {test_tw_path}...")
 
     threshold_method = cfg.evaluation.node_evaluation.threshold_method
@@ -143,8 +159,14 @@ def get_node_predictions_node_level(val_tw_path, test_tw_path, cfg, **kwargs):
     node_to_max_loss_tw = {}
     node_to_max_loss = defaultdict(int)
 
+    selected_tw_indices = kwargs.get("selected_tw_indices", None)
+    if selected_tw_indices is not None:
+        selected_tw_indices = set(selected_tw_indices)
+
     filelist = listdir_sorted(test_tw_path)
-    for tw, file in enumerate(log_tqdm(sorted(filelist), desc="Compute labels")):
+    for tw, file in enumerate(log_tqdm(filelist, desc="Compute labels")):
+        if selected_tw_indices is not None and tw not in selected_tw_indices:
+            continue
         file = os.path.join(test_tw_path, file)
         df = pd.read_csv(file).to_dict(orient="records")
         for line in df:
@@ -284,7 +306,13 @@ def main(
     else:
         get_preds_fn = get_node_predictions
 
-    results, thr = get_preds_fn(cfg=cfg, val_tw_path=val_tw_path, test_tw_path=test_tw_path)
+    results, thr = get_preds_fn(
+        cfg=cfg,
+        val_tw_path=val_tw_path,
+        test_tw_path=test_tw_path,
+        selected_tw_indices=kwargs.get("selected_tw_indices", None),
+        ground_truth_nids=kwargs.get("ground_truth_nids", None),
+    )
 
     # save results for future checking
     os.makedirs(cfg.evaluation._results_dir, exist_ok=True)
@@ -306,7 +334,9 @@ def main(
     seen_score_img_file = os.path.join(out_dir, f"seen_score_{model_epoch_dir}.png")
     discrim_img_file = os.path.join(out_dir, f"discrim_curve_{model_epoch_dir}.png")
 
-    attack_to_GPs = get_GP_of_each_attack(cfg)
+    attack_to_GPs = kwargs.get("attack_to_GPs", None)
+    if attack_to_GPs is None:
+        attack_to_GPs = get_GP_of_each_attack(cfg)
     attack_to_TPs = defaultdict(int)
 
     log("Analysis of malicious nodes:")

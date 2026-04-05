@@ -737,7 +737,16 @@ def get_days_from_cfg(cfg):
             )
         )
 
-    return days
+    # Deduplicate while preserving order (e.g., per-attack configs have multiple test
+    # files per day like graph_5_dos_slowloris, graph_5_dos_hulk -> both map to day 5)
+    seen = set()
+    unique_days = []
+    for d in days:
+        if d not in seen:
+            seen.add(d)
+            unique_days.append(d)
+
+    return unique_days
 
 
 def get_uncertainty_methods_to_run(cfg):

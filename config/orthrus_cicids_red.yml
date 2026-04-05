@@ -1,0 +1,31 @@
+# Orthrus with summary-stat time encoding (first_ts, last_ts, count) for CIC-IDS-2017
+#
+# Instead of computing KDE/DPGMM density vectors for edges with >= 10 timestamps,
+# this config uses a simple 3-D vector (first_ts, last_ts, count) for EVERY edge.
+# All edges are reduced to a single representative in the graph, and the temporal
+# information is captured entirely by this 3-D summary vector.
+#
+# CIC-IDS-2017 has only netflow nodes (IP addresses).
+
+_include_yml: orthrus_non_snooped_edge_ts
+
+# CIC-IDS-2017 specific construction settings
+construction:
+  node_label_features:
+    netflow: remote_ip, remote_port
+
+# Summary-stat KDE parameters: (first_ts, last_ts, count) vectors for ALL edges
+kde_params:
+  rkhs_dim: 3
+  min_occurrences: 1
+  time_dim: 50
+  kde_vectors_dir: kde_vectors_red_orthrus
+  feat_inference_dir: artifacts_cicids
+  use_precomputed: true
+  use_summary_stats: true
+
+training:
+  enable_batch_timing: true
+
+evaluation:
+  ground_truth_version: none

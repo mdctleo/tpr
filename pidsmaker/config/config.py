@@ -189,6 +189,108 @@ DATASET_DEFAULT_CONFIG = {
             ["CIC-IDS-2017/node_ddos_loit_fri.csv", "2017-07-07 15:56:00", "2017-07-07 16:16:00"],
         ],
     },
+    # CIC-IDS-2017 variant with per-attack test graphs
+    # Each test attack gets its own graph folder containing full day benign + that attack only
+    "CIC_IDS_2017_PER_ATTACK": {
+        "raw_dir": "",
+        "database": "cic_ids_2017",
+        "database_all_file": "cic_ids_2017",
+        "num_node_types": 1,
+        "num_edge_types": 3,
+        "year_month": "2017-07",
+        "start_end_day_range": (3, 8),
+        "timestamp_unit": "ns",
+        "per_attack_test_graphs": True,  # Flag to enable per-attack graph generation
+        "train_files": ["graph_3"],
+        "val_files": ["graph_4"],
+        # Test files: one per attack (14 total: 5 Wed + 6 Thu + 3 Fri)
+        "test_files": [
+            # Wednesday attacks (day 5)
+            "graph_5_dos_slowloris",
+            "graph_5_dos_slowhttptest",
+            "graph_5_dos_hulk",
+            "graph_5_dos_goldeneye",
+            "graph_5_heartbleed",
+            # Thursday attacks (day 6)
+            "graph_6_web_bruteforce",
+            "graph_6_web_xss",
+            "graph_6_web_sqli",
+            "graph_6_infiltration_step1",
+            "graph_6_infiltration_cooldisk",
+            "graph_6_infiltration_step2",
+            # Friday attacks (day 7)
+            "graph_7_botnet",
+            "graph_7_portscan",
+            "graph_7_ddos_loit",
+        ],
+        "unused_files": [],
+        # Ground truth for test attacks only (excludes Tuesday val attacks)
+        "ground_truth_relative_path": [
+            "CIC-IDS-2017/node_dos_slowloris_wed.csv",
+            "CIC-IDS-2017/node_dos_slowhttptest_wed.csv",
+            "CIC-IDS-2017/node_dos_hulk_wed.csv",
+            "CIC-IDS-2017/node_dos_goldeneye_wed.csv",
+            "CIC-IDS-2017/node_heartbleed_wed.csv",
+            "CIC-IDS-2017/node_web_bruteforce_thu.csv",
+            "CIC-IDS-2017/node_web_xss_thu.csv",
+            "CIC-IDS-2017/node_web_sqli_thu.csv",
+            "CIC-IDS-2017/node_infiltration_step1_thu.csv",
+            "CIC-IDS-2017/node_infiltration_cooldisk_thu.csv",
+            "CIC-IDS-2017/node_infiltration_step2_thu.csv",
+            "CIC-IDS-2017/node_botnet_fri.csv",
+            "CIC-IDS-2017/node_portscan_fri.csv",
+            "CIC-IDS-2017/node_ddos_loit_fri.csv",
+        ],
+        # Attack time windows (test attacks only, same order as ground_truth)
+        "attack_to_time_window": [
+            # Wednesday: DoS Slowloris 9:47-10:10
+            ["CIC-IDS-2017/node_dos_slowloris_wed.csv", "2017-07-05 09:47:00", "2017-07-05 10:10:00"],
+            # Wednesday: DoS Slowhttptest 10:14-10:35
+            ["CIC-IDS-2017/node_dos_slowhttptest_wed.csv", "2017-07-05 10:14:00", "2017-07-05 10:35:00"],
+            # Wednesday: DoS Hulk 10:43-11:00
+            ["CIC-IDS-2017/node_dos_hulk_wed.csv", "2017-07-05 10:43:00", "2017-07-05 11:00:00"],
+            # Wednesday: DoS GoldenEye 11:10-11:23
+            ["CIC-IDS-2017/node_dos_goldeneye_wed.csv", "2017-07-05 11:10:00", "2017-07-05 11:23:00"],
+            # Wednesday: Heartbleed 15:12-15:32
+            ["CIC-IDS-2017/node_heartbleed_wed.csv", "2017-07-05 15:12:00", "2017-07-05 15:32:00"],
+            # Thursday: Web Brute Force 9:20-10:00
+            ["CIC-IDS-2017/node_web_bruteforce_thu.csv", "2017-07-06 09:20:00", "2017-07-06 10:00:00"],
+            # Thursday: Web XSS 10:15-10:35
+            ["CIC-IDS-2017/node_web_xss_thu.csv", "2017-07-06 10:15:00", "2017-07-06 10:35:00"],
+            # Thursday: Web SQL Injection 10:40-10:42
+            ["CIC-IDS-2017/node_web_sqli_thu.csv", "2017-07-06 10:40:00", "2017-07-06 10:42:00"],
+            # Thursday: Infiltration step 1 (Metasploit Vista) 14:19-14:35
+            ["CIC-IDS-2017/node_infiltration_step1_thu.csv", "2017-07-06 14:19:00", "2017-07-06 14:35:00"],
+            # Thursday: Infiltration Cool Disk MAC 14:53-15:00
+            ["CIC-IDS-2017/node_infiltration_cooldisk_thu.csv", "2017-07-06 14:53:00", "2017-07-06 15:00:00"],
+            # Thursday: Infiltration step 2 (Vista portscan) 15:04-15:45
+            ["CIC-IDS-2017/node_infiltration_step2_thu.csv", "2017-07-06 15:04:00", "2017-07-06 15:45:00"],
+            # Friday: Botnet ARES 10:02-11:02
+            ["CIC-IDS-2017/node_botnet_fri.csv", "2017-07-07 10:02:00", "2017-07-07 11:02:00"],
+            # Friday: Port Scan 13:55-15:29
+            ["CIC-IDS-2017/node_portscan_fri.csv", "2017-07-07 13:55:00", "2017-07-07 15:29:00"],
+            # Friday: DDoS LOIT 15:56-16:16
+            ["CIC-IDS-2017/node_ddos_loit_fri.csv", "2017-07-07 15:56:00", "2017-07-07 16:16:00"],
+        ],
+        # Mapping from test_file to attack_time_window_index (as list of tuples for YACS compatibility)
+        # Used by build_magic_graphs to know which attack goes with which test_file
+        "test_file_to_attack_idx": [
+            ("graph_5_dos_slowloris", 0),
+            ("graph_5_dos_slowhttptest", 1),
+            ("graph_5_dos_hulk", 2),
+            ("graph_5_dos_goldeneye", 3),
+            ("graph_5_heartbleed", 4),
+            ("graph_6_web_bruteforce", 5),
+            ("graph_6_web_xss", 6),
+            ("graph_6_web_sqli", 7),
+            ("graph_6_infiltration_step1", 8),
+            ("graph_6_infiltration_cooldisk", 9),
+            ("graph_6_infiltration_step2", 10),
+            ("graph_7_botnet", 11),
+            ("graph_7_portscan", 12),
+            ("graph_7_ddos_loit", 13),
+        ],
+    },
     "CLEARSCOPE_E5": {
         "raw_dir": "",
         "database": "clearscope_e5",
@@ -1055,8 +1157,21 @@ TASK_ARGS = {
         "n_quadrature_points": Arg(int, desc="Number of Gauss-Hermite quadrature points for RKHS conversion."),
         "time_dim": Arg(int, desc="Output dimension for time encoding."),
         "kde_vectors_dir": Arg(str, desc="Directory containing precomputed {DATASET}_kde_vectors.pt files."),
+        "feat_inference_dir": Arg(str, desc="Base artifacts directory containing feat_inference/ (empty = use 'artifacts')."),
         "use_precomputed": Arg(bool, desc="Use offline precomputed RKHS vectors (via kde_computation.py)."),
         "use_timestamp_diffs": Arg(bool, desc="Compute KDE on timestamp differences (inter-arrival times) instead of raw timestamps."),
+        "use_summary_stats": Arg(bool, desc="Use simple (first_ts, last_ts, count) summary vectors instead of KDE/DPGMM. Applied to ALL edges (no min_occurrences filter)."),
+        # BayesianGaussianMixtureGPU parameters (used by kde_computation.py offline pipeline)
+        "n_components": Arg(int, desc="DP truncation level K (stick-breaking)."),
+        "gamma": Arg(float, desc="DP concentration parameter."),
+        "max_iter": Arg(int, desc="Max CAVI iterations per batch."),
+        "tol": Arg(float, desc="Convergence tolerance."),
+        "patience": Arg(int, desc="Early-stop patience (iterations without improvement)."),
+        "n_init": Arg(int, desc="Number of independent random restarts."),
+        "init_method": Arg(str, desc="Initialisation method: 'kmeans' or 'linear'."),
+        "truncate_threshold": Arg(float, desc="Cumulative weight cutoff for pruning inactive components."),
+        "max_n_per_edge": Arg(int, desc="Subsample edges with more timestamps than this."),
+        "chunk_size": Arg(int, desc="Number of edges processed per GPU batch."),
     },
 }
 

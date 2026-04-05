@@ -15,8 +15,20 @@ kde_params:
   n_quadrature_points: 10       # Gauss-Hermite quadrature points for RKHS conversion
   time_dim: 50                  # Output dimension for time encoding
   kde_vectors_dir: ''           # Directory for precomputed vectors (empty = disabled)
+  feat_inference_dir: ''        # Base artifacts directory containing feat_inference/ (empty = use 'artifacts')
   use_precomputed: false        # Use offline precomputed RKHS vectors
   use_timestamp_diffs: false    # Compute KDE on timestamp differences
+  # BayesianGaussianMixtureGPU parameters (used by kde_computation.py offline pipeline)
+  n_components: 100             # DP truncation level K (stick-breaking)
+  gamma: 5.0                    # DP concentration parameter
+  max_iter: 300                 # Max CAVI iterations per batch
+  tol: 1.0e-4                   # Convergence tolerance
+  patience: 20                  # Early-stop patience (iterations without improvement)
+  n_init: 1                     # Number of independent random restarts
+  init_method: 'kmeans'         # Initialisation method: 'kmeans' or 'linear'
+  truncate_threshold: 0.99      # Cumulative weight cutoff for pruning inactive components
+  max_n_per_edge: 50000         # Subsample edges with more timestamps than this
+  chunk_size: 256               # Number of edges processed per GPU batch
 
 featurization:
   temporal_rw:

@@ -197,6 +197,8 @@ class BatchTimingTracker:
         min_occurrences: int = 10,
         output_dir: str = "timing_results",
         device: Optional[torch.device] = None,
+        node_type_dim: int = 8,
+        edge_type_dim: int = 16,
     ):
         """
         Initialize the batch timing tracker.
@@ -207,9 +209,13 @@ class BatchTimingTracker:
             min_occurrences: Threshold for KDE eligibility
             output_dir: Directory to save timing results
             device: CUDA device for timing (uses CUDA events if available)
+            node_type_dim: Number of node type dimensions (1 for CIC-IDS, 3 for DARPA E3)
+            edge_type_dim: Number of edge type dimensions (3 for CIC-IDS, 10 for DARPA E3)
         """
         self.kde_eligible_edges = kde_eligible_edges or set()
         self.edge_occurrence_counts = edge_occurrence_counts or {}
+        self.node_type_dim = node_type_dim
+        self.edge_type_dim = edge_type_dim
         self.min_occurrences = min_occurrences
         self.output_dir = output_dir
         self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -475,14 +481,14 @@ class BatchTimingTracker:
         # 2. edge_type attribute (may be triplet-encoded, fallback only)
         # 3. Default to 0
         if hasattr(batch, 'msg') and batch.msg is not None:
-            # Extract edge types from msg tensor (for DARPA E3 datasets)
+            # Extract edge types from msg tensor
             # The msg tensor contains: [src_type, src_emb, edge_type, dst_type, dst_emb]
             try:
                 msg = batch.msg
                 if isinstance(msg, torch.Tensor):
-                    # Use default dimensions for DARPA E3: node_type_dim=8, edge_type_dim=16
+                    # Use dataset-specific dimensions (e.g. CIC-IDS: 1,3; DARPA E3: 3,10)
                     # return_tensor=True keeps it on GPU
-                    edge_types = extract_edge_type_from_msg(msg, node_type_dim=8, edge_type_dim=16, return_tensor=True)
+                    edge_types = extract_edge_type_from_msg(msg, node_type_dim=self.node_type_dim, edge_type_dim=self.edge_type_dim, return_tensor=True)
                     edge_types = edge_types.to(device)
                 else:
                     edge_types = torch.zeros(len(src), dtype=torch.long, device=device)
@@ -844,6 +850,8 @@ def init_global_tracker(
     output_dir: str = "timing_results",
     device: Optional[torch.device] = None,
     min_occurrences: int = 10,
+    node_type_dim: int = 8,
+    edge_type_dim: int = 16,
 ) -> BatchTimingTracker:
     """
     Initialize the global batch timing tracker.
@@ -854,6 +862,8 @@ def init_global_tracker(
         output_dir: Directory to save timing results
         device: CUDA device for timing
         min_occurrences: Threshold for KDE eligibility
+        node_type_dim: Number of node type dimensions (1 for CIC-IDS, 3 for DARPA E3)
+        edge_type_dim: Number of edge type dimensions (3 for CIC-IDS, 10 for DARPA E3)
         
     Returns:
         BatchTimingTracker instance
@@ -867,6 +877,8 @@ def init_global_tracker(
         min_occurrences=min_occurrences,
         output_dir=output_dir,
         device=device,
+        node_type_dim=node_type_dim,
+        edge_type_dim=edge_type_dim,
     )
     
     _global_timing_state['enabled'] = True

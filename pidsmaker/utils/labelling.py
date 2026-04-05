@@ -119,12 +119,24 @@ def get_events(
 
 
 def get_t2malicious_node(cfg) -> dict[list]:
+    attack_to_t_to_node = get_t2malicious_node_by_attack(cfg)
+
+    t_to_node = defaultdict(list)
+    for per_attack_map in attack_to_t_to_node.values():
+        for t, node_ids in per_attack_map.items():
+            t_to_node[t].extend(node_ids)
+
+    return t_to_node
+
+
+def get_t2malicious_node_by_attack(cfg) -> dict:
     cur, connect = init_database_connection(cfg)
     uuid2nids, nid2uuid = get_uuid2nids(cur)
 
-    t_to_node = defaultdict(list)
+    attack_to_t_to_node = {}
 
-    for attack_tuple in cfg.dataset.attack_to_time_window:
+    for attack_idx, attack_tuple in enumerate(cfg.dataset.attack_to_time_window):
+        t_to_node = defaultdict(list)
         attack = attack_tuple[0]
         start_time = datetime_to_ns_time_US(attack_tuple[1])
         end_time = datetime_to_ns_time_US(attack_tuple[2])
@@ -166,7 +178,9 @@ def get_t2malicious_node(cfg) -> dict[list]:
             if dst_id in ground_truth_nids:
                 t_to_node[int(t)].append(nid2uuid[int(dst_id)])
 
-    return t_to_node
+        attack_to_t_to_node[attack_idx] = dict(t_to_node)
+
+    return attack_to_t_to_node
 
 
 def get_attack_to_mal_edges(cfg) -> dict[list]:

@@ -67,6 +67,10 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
                     )
                 )
 
+        # Skip empty graphs (no edges) — can happen with per-attack splitting
+        if len(msg) == 0:
+            continue
+
         data = CollatableTemporalData(
             src=torch.tensor(src).to(torch.long),
             dst=torch.tensor(dst).to(torch.long),
@@ -76,8 +80,12 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
         )
 
         os.makedirs(out_dir, exist_ok=True)
+        # Use parent_folder/filename to prevent per-attack files from overwriting
+        # each other (e.g., graph_5_dos_slowloris and graph_5_dos_hulk share the
+        # same timestamp-based filenames for the same day)
+        parent_folder = os.path.basename(os.path.dirname(path))
         file = path.split("/")[-1]
-        torch.save(data, os.path.join(out_dir, f"{file}.TemporalData.simple"))
+        torch.save(data, os.path.join(out_dir, f"{parent_folder}__{file}.TemporalData.simple"))
 
 
 def get_indexid2vec(cfg):
