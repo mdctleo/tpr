@@ -1,0 +1,13 @@
+enhanced_config,baseline_config,enhanced_epoch,baseline_epoch,epoch_type,last_evaluated_attack,total_nodes,total_flipped,flipped_benign_to_mal,flipped_mal_to_benign,flipped_incorrect_to_correct,flipped_correct_to_incorrect,baseline_tp,baseline_fp,baseline_fn,baseline_tn,enhanced_tp,enhanced_fp,enhanced_fn,enhanced_tn,flipped_node_ids,flipped_node_details
+kairos_cicids_kde_ts,kairos_cicids,0,1,best,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_kde_ts,orthrus_cicids,9,0,best,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+kairos_cicids_kde_diff,kairos_cicids,0,1,best,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_kde_diff,orthrus_cicids,5,0,best,graph_7_ddos_loit,6143,4,4,0,1,3,0,0,2,6141,1,3,1,6138,3580; 4750; 4759; 4762,"node_3580(base_yhat=0,enh_yhat=1,y_true=1,base_score=6.6739,enh_score=15.1656); node_4750(base_yhat=0,enh_yhat=1,y_true=0,base_score=5.6040,enh_score=12.4547); node_4759(base_yhat=0,enh_yhat=1,y_true=0,base_score=7.8170,enh_score=13.2218); node_4762(base_yhat=0,enh_yhat=1,y_true=0,base_score=6.3617,enh_score=15.1656)"
+kairos_cicids_red,kairos_cicids,0,1,best,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_red,orthrus_cicids,0,0,best,graph_7_ddos_loit,6143,3,3,0,0,3,0,0,2,6141,0,3,2,6138,4750; 4759; 4762,"node_4750(base_yhat=0,enh_yhat=1,y_true=0,base_score=5.6040,enh_score=14.1298); node_4759(base_yhat=0,enh_yhat=1,y_true=0,base_score=7.8170,enh_score=13.5621); node_4762(base_yhat=0,enh_yhat=1,y_true=0,base_score=6.3617,enh_score=14.1298)"
+kairos_cicids_kde_ts,kairos_cicids,11,11,last,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_kde_ts,orthrus_cicids,11,11,last,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+kairos_cicids_kde_diff,kairos_cicids,11,11,last,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_kde_diff,orthrus_cicids,11,11,last,graph_7_ddos_loit,6143,2,2,0,1,1,0,0,2,6141,1,1,1,6140,3580; 4762,"node_3580(base_yhat=0,enh_yhat=1,y_true=1,base_score=7.9913,enh_score=14.7248); node_4762(base_yhat=0,enh_yhat=1,y_true=0,base_score=6.8787,enh_score=14.7248)"
+kairos_cicids_red,kairos_cicids,11,11,last,graph_7_ddos_loit,6143,0,0,0,0,0,0,0,2,6141,0,0,2,6141,,
+orthrus_cicids_red,orthrus_cicids,11,11,last,graph_7_ddos_loit,6143,2,2,0,0,2,0,0,2,6141,0,2,2,6139,4750; 4759,"node_4750(base_yhat=0,enh_yhat=1,y_true=0,base_score=5.8510,enh_score=14.6745); node_4759(base_yhat=0,enh_yhat=1,y_true=0,base_score=6.5376,enh_score=14.6745)"

@@ -1,0 +1,19 @@
+Case,Config,Dataset,Benign_to_Malicious,Malicious_to_Benign,Total_Differently_Classified
+CASE1,orthrus_kde_diff_ts,THEIA_E3,123,6,129
+CASE1,orthrus_kde_diff_ts,CLEARSCOPE_E3,1039,3189,4228
+CASE1,orthrus_kde_diff_ts,CADETS_E3,11,2,13
+CASE1,kairos_kde_diff_ts,THEIA_E3,21,268,289
+CASE1,kairos_kde_diff_ts,CLEARSCOPE_E3,data unavailable,data unavailable,data unavailable
+CASE1,kairos_kde_diff_ts,CADETS_E3,4,416,420
+CASE2,orthrus_edge_kde_ts,THEIA_E3,data unavailable,data unavailable,data unavailable
+CASE2,orthrus_edge_kde_ts,CLEARSCOPE_E3,1039,3189,4228
+CASE2,orthrus_edge_kde_ts,CADETS_E3,0,5,5
+CASE2,kairos_kde_ts,THEIA_E3,0,302,302
+CASE2,kairos_kde_ts,CLEARSCOPE_E3,0,0,0
+CASE2,kairos_kde_ts,CADETS_E3,data unavailable,data unavailable,data unavailable
+CASE3,orthrus_non_snooped_edge_ts_stats,THEIA_E3,6,6,12
+CASE3,orthrus_non_snooped_edge_ts_stats,CLEARSCOPE_E3,3393,868,4261
+CASE3,orthrus_non_snooped_edge_ts_stats,CADETS_E3,19,5,24
+CASE3,kairos_edge_ts_stats,THEIA_E3,2,302,304
+CASE3,kairos_edge_ts_stats,CLEARSCOPE_E3,108,4940,5048
+CASE3,kairos_edge_ts_stats,CADETS_E3,0,416,416

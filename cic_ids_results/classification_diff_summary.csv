@@ -1,0 +1,13 @@
+enhanced_config,baseline_config,epoch_type,enhanced_epoch,baseline_epoch,attacks_with_tp_gained,attacks_with_tp_lost,total_tp_gained_across_attacks,total_tp_lost_across_attacks,total_fp_delta_across_attacks,pth_total_flipped_nodes,pth_flipped_benign_to_mal,pth_flipped_mal_to_benign,pth_flipped_incorrect_to_correct,pth_flipped_correct_to_incorrect
+kairos_cicids_kde_ts,kairos_cicids,best,0,1,1,1,2,1,5,0,0,0,0,0
+orthrus_cicids_kde_ts,orthrus_cicids,best,9,0,1,0,2,0,0,0,0,0,0,0
+kairos_cicids_kde_diff,kairos_cicids,best,0,1,0,1,0,1,-6,0,0,0,0,0
+orthrus_cicids_kde_diff,orthrus_cicids,best,5,0,9,0,10,0,21,4,4,0,1,3
+kairos_cicids_red,kairos_cicids,best,0,1,0,2,0,4,-16,0,0,0,0,0
+orthrus_cicids_red,orthrus_cicids,best,0,0,0,0,0,0,0,3,3,0,0,3
+kairos_cicids_kde_ts,kairos_cicids,last,11,11,0,2,0,2,-1,0,0,0,0,0
+orthrus_cicids_kde_ts,orthrus_cicids,last,11,11,1,0,2,0,0,0,0,0,0,0
+kairos_cicids_kde_diff,kairos_cicids,last,11,11,0,1,0,1,18,0,0,0,0,0
+orthrus_cicids_kde_diff,orthrus_cicids,last,11,11,3,0,3,0,5,2,2,0,1,1
+kairos_cicids_red,kairos_cicids,last,11,11,0,2,0,3,-10,0,0,0,0,0
+orthrus_cicids_red,orthrus_cicids,last,11,11,0,0,0,0,0,2,2,0,0,2

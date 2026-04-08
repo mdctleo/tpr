@@ -128,14 +128,34 @@ def generate_timestamps(start_time, end_time, interval_minutes):
     return timestamps
 
 
+def _day_to_dates(year_month, day):
+    """Convert a logical day number to calendar start/stop date strings.
+
+    Handles day numbers that overflow the base month (e.g. day 32 of January
+    becomes February 1) via :class:`datetime.timedelta`, which is needed for
+    datasets with more days than any single calendar month (e.g. HyperVision
+    with 44 days).
+
+    Returns (date_start_str, date_stop_str, day_prefix) where *day_prefix* is
+    the ``"YYYY-MM-DD"`` string for the start date (used to match
+    ``attack_to_time_window`` entries).
+    """
+    base = datetime.strptime(f"{year_month}-01", "%Y-%m-%d")
+    start_dt = base + timedelta(days=day - 1)
+    stop_dt = base + timedelta(days=day)
+    date_start = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    date_stop = stop_dt.strftime("%Y-%m-%d %H:%M:%S")
+    day_prefix = start_dt.strftime("%Y-%m-%d")
+    return date_start, date_stop, day_prefix
+
+
 def get_attack_time_windows_for_day(cfg, day):
     """
     Returns a list of attack time windows (as ns timestamps) for a given day.
     Each entry is (attack_name, start_ns, end_ns).
     """
     attack_windows = []
-    year_month = cfg.dataset.year_month
-    day_str = f"{year_month}-{day:02d}"
+    _date_start, _date_stop, day_str = _day_to_dates(cfg.dataset.year_month, day)
     
     for attack_tuple in cfg.dataset.attack_to_time_window:
         attack_name = attack_tuple[0]
@@ -237,9 +257,8 @@ def generate_per_attack_test_graphs(cur, uuid2type, graph_out_dir, hash2uuid, cf
         
         log(f"Generating per-attack graph for {test_file} (attack: {attack_name})")
         
-        # Query full day's events
-        date_start = cfg.dataset.year_month + "-" + str(day) + " 00:00:00"
-        date_stop = cfg.dataset.year_month + "-" + str(day + 1) + " 00:00:00"
+        # Query full day's events (timedelta handles day > 31)
+        date_start, date_stop, _ = _day_to_dates(cfg.dataset.year_month, day)
         start_ns_timestamp = datetime_to_ns_time_US(date_start)
         end_ns_timestamp = datetime_to_ns_time_US(date_stop)
         
@@ -391,8 +410,7 @@ def generate_graphs(cur, uuid2type, graph_out_dir, hash2uuid, cfg):
             log(f"Skipping day {day} - will generate per-attack graphs instead")
             continue
         
-        date_start = cfg.dataset.year_month + "-" + str(day) + " 00:00:00"
-        date_stop = cfg.dataset.year_month + "-" + str(day + 1) + " 00:00:00"
+        date_start, date_stop, _ = _day_to_dates(cfg.dataset.year_month, day)
 
         timestamps = [date_start, date_stop]
         test_mode_set_done = False

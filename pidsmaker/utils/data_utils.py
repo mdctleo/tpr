@@ -308,10 +308,15 @@ def get_possible_triplets(cfg):
     event_map = get_rel2id(cfg, from_zero=True)
 
     # Choose the right possible_events based on dataset
-    from pidsmaker.utils.dataset_utils import CIC_IDS_DATASETS, possible_events_cic_ids
+    from pidsmaker.utils.dataset_utils import (
+        CIC_IDS_DATASETS, possible_events_cic_ids,
+        HYPERVISION_DATASETS, possible_events_hypervision,
+    )
     
     if cfg.dataset.name in CIC_IDS_DATASETS:
         events_dict = possible_events_cic_ids
+    elif cfg.dataset.name in HYPERVISION_DATASETS:
+        events_dict = possible_events_hypervision
     else:
         events_dict = possible_events
     

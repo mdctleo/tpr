@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""
+HyperVision Dataset Ingestion Script for PIDSMaker
+
+Reads all 43 HyperVision TSV files (packet-level network data) and inserts
+them into PostgreSQL using PIDSMaker's existing schema (event_table,
+netflow_node_table).
+
+Day mapping (44 days, year_month="2024-01"):
+  Day  1       = training: deduplicated benign rows from ALL 43 files
+  Days  2 –  8 = validation: 7 attacks (one per subclass, highest # windows)
+  Days  9 – 44 = testing: remaining 36 attacks, one per day
+
+Timestamps: original microseconds × 1000 → nanoseconds, offset to synthetic
+day boundaries starting at 2024-01-01 00:00:00 US/Eastern.
+
+Since HyperVision is purely network-level data (IP addresses only),
+subject_node_table and file_node_table remain empty.
+
+Usage:
+    python3 create_database_hypervision.py \\
+        --input /path/to/hypervision_dataset/ \\
+        --db-name hypervision \\
+        --host localhost --port 5432 \\
+        --user postgres --password postgres --create-db
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timedelta
+
+try:
+    import psycopg2
+    import psycopg2.extras
+    from psycopg2 import sql
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+except ImportError:
+    print("[!] Missing psycopg2. Install with: pip install psycopg2-binary")
+    sys.exit(1)
+
+try:
+    import pytz
+except ImportError:
+    print("[!] Missing pytz. Install with: pip install pytz")
+    sys.exit(1)
+
+
+# ── Schema (matches PIDSMaker convention) ──────────────────────────────────
+
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS event_table (
+    src_node      VARCHAR(64),
+    src_index_id  VARCHAR(16),
+    operation     VARCHAR(32),
+    dst_node      VARCHAR(64),
+    dst_index_id  VARCHAR(16),
+    event_uuid    VARCHAR(64),
+    timestamp_rec BIGINT,
+    _id           SERIAL PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS netflow_node_table (
+    node_uuid  VARCHAR(64),
+    hash_id    VARCHAR(64),
+    src_addr   VARCHAR(64),
+    src_port   VARCHAR(16),
+    dst_addr   VARCHAR(64),
+    dst_port   VARCHAR(16),
+    index_id   BIGINT
+);
+CREATE TABLE IF NOT EXISTS subject_node_table (
+    node_uuid  VARCHAR(64),
+    hash_id    VARCHAR(64),
+    path       VARCHAR(256),
+    cmd        VARCHAR(256),
+    index_id   BIGINT
+);
+CREATE TABLE IF NOT EXISTS file_node_table (
+    node_uuid  VARCHAR(64),
+    hash_id    VARCHAR(64),
+    path       VARCHAR(256),
+    index_id   BIGINT
+);
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres;
+"""
+
+# ── Day mapping ────────────────────────────────────────────────────────────
+# Day 1 = training (benign only, deduplicated from all 43 files)
+# Days 2-8 = validation (one attack per subclass, highest # attack windows)
+# Days 9-44 = testing (remaining 36 attacks, sorted by subclass then name)
+# Subclass order (alphabetical): encrypted_flooding_traffic/* first, then
+# traditional_brute_force_attack/*.
+
+ATTACK_DAY_MAP = [
+    # ── Validation (days 2-8) ──────────────────────────────────────────────
+    (2,  "encrypted_flooding_traffic/link_flooding/crossfiresm.tsv"),
+    (3,  "encrypted_flooding_traffic/password_cracking/sshpwdla.tsv"),
+    (4,  "encrypted_flooding_traffic/ssh_inject/ackport.tsv"),
+    (5,  "traditional_brute_force_attack/amplification_attack/charrdos.tsv"),
+    (6,  "traditional_brute_force_attack/brute_scanning/sqlscan.tsv"),
+    (7,  "traditional_brute_force_attack/probing_vulnerable_application/ssh_lrscan.tsv"),
+    (8,  "traditional_brute_force_attack/source_spoof/icmpsdos.tsv"),
+    # ── Testing (days 9-44) ────────────────────────────────────────────────
+    # encrypted_flooding_traffic/link_flooding
+    (9,  "encrypted_flooding_traffic/link_flooding/crossfirela.tsv"),
+    (10, "encrypted_flooding_traffic/link_flooding/crossfiremd.tsv"),
+    (11, "encrypted_flooding_traffic/link_flooding/lrtcpdos02.tsv"),
+    (12, "encrypted_flooding_traffic/link_flooding/lrtcpdos05.tsv"),
+    (13, "encrypted_flooding_traffic/link_flooding/lrtcpdos10.tsv"),
+    # encrypted_flooding_traffic/password_cracking
+    (14, "encrypted_flooding_traffic/password_cracking/sshpwdmd.tsv"),
+    (15, "encrypted_flooding_traffic/password_cracking/sshpwdsm.tsv"),
+    (16, "encrypted_flooding_traffic/password_cracking/telnetpwdla.tsv"),
+    (17, "encrypted_flooding_traffic/password_cracking/telnetpwdmd.tsv"),
+    (18, "encrypted_flooding_traffic/password_cracking/telnetpwdsm.tsv"),
+    # encrypted_flooding_traffic/ssh_inject
+    (19, "encrypted_flooding_traffic/ssh_inject/ipidaddr.tsv"),
+    (20, "encrypted_flooding_traffic/ssh_inject/ipidport.tsv"),
+    # traditional_brute_force_attack/amplification_attack
+    (21, "traditional_brute_force_attack/amplification_attack/cldaprdos.tsv"),
+    (22, "traditional_brute_force_attack/amplification_attack/dnsrdos.tsv"),
+    (23, "traditional_brute_force_attack/amplification_attack/memcachedrdos.tsv"),
+    (24, "traditional_brute_force_attack/amplification_attack/ntprdos.tsv"),
+    (25, "traditional_brute_force_attack/amplification_attack/riprdos.tsv"),
+    (26, "traditional_brute_force_attack/amplification_attack/ssdprdos.tsv"),
+    # traditional_brute_force_attack/brute_scanning
+    (27, "traditional_brute_force_attack/brute_scanning/dnsscan.tsv"),
+    (28, "traditional_brute_force_attack/brute_scanning/httpscan.tsv"),
+    (29, "traditional_brute_force_attack/brute_scanning/httpsscan.tsv"),
+    (30, "traditional_brute_force_attack/brute_scanning/icmpscan.tsv"),
+    (31, "traditional_brute_force_attack/brute_scanning/ntpscan.tsv"),
+    (32, "traditional_brute_force_attack/brute_scanning/sshscan.tsv"),
+    # traditional_brute_force_attack/probing_vulnerable_application
+    (33, "traditional_brute_force_attack/probing_vulnerable_application/dns_lrscan.tsv"),
+    (34, "traditional_brute_force_attack/probing_vulnerable_application/http_lrscan.tsv"),
+    (35, "traditional_brute_force_attack/probing_vulnerable_application/icmp_lrscan.tsv"),
+    (36, "traditional_brute_force_attack/probing_vulnerable_application/netbios_lrscan.tsv"),
+    (37, "traditional_brute_force_attack/probing_vulnerable_application/rdp_lrscan.tsv"),
+    (38, "traditional_brute_force_attack/probing_vulnerable_application/smtp_lrscan.tsv"),
+    (39, "traditional_brute_force_attack/probing_vulnerable_application/snmp_lrscan.tsv"),
+    (40, "traditional_brute_force_attack/probing_vulnerable_application/telnet_lrscan.tsv"),
+    (41, "traditional_brute_force_attack/probing_vulnerable_application/vlc_lrscan.tsv"),
+    # traditional_brute_force_attack/source_spoof
+    (42, "traditional_brute_force_attack/source_spoof/rstsdos.tsv"),
+    (43, "traditional_brute_force_attack/source_spoof/synsdos.tsv"),
+    (44, "traditional_brute_force_attack/source_spoof/udpsdos.tsv"),
+]
+
+VALID_EDGE_TYPES = {
+    "ICMP", "TCP_ACK", "TCP_ACK+FIN", "TCP_ACK+RST", "TCP_RST",
+    "TCP_SYN", "TCP_SYN+ACK", "UDP", "UNKNOWN",
+}
+
+
+def sha256_hash(s):
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _day_base_ns(day):
+    """Compute nanosecond epoch for the start of a logical day.
+
+    Uses timedelta from 2024-01-01 so day numbers > 31 roll into February,
+    matching the ``_day_to_dates`` helper in ``build_magic_graphs.py``.
+    """
+    tz = pytz.timezone("US/Eastern")
+    base = datetime(2024, 1, 1)
+    dt = base + timedelta(days=day - 1)
+    localized = tz.localize(dt)
+    return int(localized.timestamp() * 1_000_000_000)
+
+
+# ── Subprocess worker for a single attack-day TSV ─────────────────────────
+# Runs in a fresh Python process (no psycopg2 loaded) to avoid memory
+# corruption with Python 3.13's C extensions during large file iteration.
+
+_WORKER_SCRIPT = r"""
+import hashlib, json, sys
+
+with open(sys.argv[1]) as jf:
+    ip_to_index = json.load(jf)
+
+tsv_path    = sys.argv[2]
+out_path    = sys.argv[3]
+evt_offset  = int(sys.argv[4])
+day_base_ns = int(sys.argv[5])
+
+VALID = {"ICMP", "TCP_ACK", "TCP_ACK+FIN", "TCP_ACK+RST", "TCP_RST",
+         "TCP_SYN", "TCP_SYN+ACK", "UDP", "UNKNOWN"}
+
+n = 0
+with open(out_path, "wb") as out, open(tsv_path, "rb") as f:
+    next(f)  # skip header
+    for raw in f:
+        p = raw.replace(b"\x00", b"").split(b"\t")
+        if len(p) < 8:
+            continue
+        src_ip   = p[0].decode("utf-8", "replace").strip()
+        dst_ip   = p[2].decode("utf-8", "replace").strip()
+        op       = p[4].decode("utf-8", "replace").strip()
+        ts_us    = p[5].decode("utf-8", "replace").strip()
+        if op not in VALID:
+            continue
+        si = ip_to_index.get(src_ip)
+        di = ip_to_index.get(dst_ip)
+        if si is None or di is None:
+            continue
+        try:
+            ts_ns = day_base_ns + int(ts_us) * 1000
+        except Exception:
+            continue
+        sh = hashlib.sha256(src_ip.encode()).hexdigest()
+        dh = hashlib.sha256(dst_ip.encode()).hexdigest()
+        line = f"{sh}\t{si}\t{op}\t{dh}\t{di}\tevt_{evt_offset + n}\t{ts_ns}\n"
+        out.write(line.encode("utf-8"))
+        n += 1
+
+print(n)
+"""
+
+
+class HyperVisionIngestor:
+    def __init__(self, db_name, host, port, user, password):
+        self.db_name = db_name
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.conn = None
+        self.cur = None
+
+    # ── DB lifecycle ───────────────────────────────────────────────────────
+
+    def create_database(self):
+        conn = psycopg2.connect(
+            dbname="postgres", user=self.user, password=self.password,
+            host=self.host, port=self.port,
+        )
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+        cur.execute(f"SELECT 1 FROM pg_database WHERE datname = '{self.db_name}'")
+        if not cur.fetchone():
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(
+                sql.Identifier(self.db_name)))
+            print(f"[+] Created database: {self.db_name}")
+        else:
+            print(f"[*] Database already exists: {self.db_name}")
+        cur.close()
+        conn.close()
+
+    def connect(self):
+        self.conn = psycopg2.connect(
+            dbname=self.db_name, user=self.user, password=self.password,
+            host=self.host, port=self.port,
+        )
+        self.cur = self.conn.cursor()
+
+    def disconnect(self):
+        if self.cur:
+            self.cur.close()
+            self.cur = None
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def create_schema(self):
+        self.cur.execute(CREATE_TABLES_SQL)
+        self.conn.commit()
+        print("[+] Created table schema")
+
+    def close(self):
+        self.disconnect()
+        print("[+] Database connection closed")
+
+    # ── Ingestion ──────────────────────────────────────────────────────────
+
+    def ingest(self, input_dir):
+        print("[*] Truncating existing tables...")
+        self.cur.execute(
+            "TRUNCATE TABLE event_table, netflow_node_table, "
+            "subject_node_table, file_node_table RESTART IDENTITY;"
+        )
+        self.conn.commit()
+
+        # Resolve all 43 file paths
+        all_tsv_paths = []
+        for _day, rel_path in ATTACK_DAY_MAP:
+            p = os.path.join(input_dir, rel_path)
+            if not os.path.exists(p):
+                print(f"[!] Missing file: {p}")
+                sys.exit(1)
+            all_tsv_paths.append(p)
+        print(f"[*] Found all {len(all_tsv_paths)} TSV files")
+
+        # ── Phase 1: collect unique IPs ───────────────────────────────────
+        # Disconnect before large file I/O to avoid psycopg2 C-extension
+        # memory issues with Python 3.13+.
+        print("[*] Phase 1: Scanning for unique IP addresses...")
+        self.disconnect()
+
+        ip_set = set()
+        for i, path in enumerate(all_tsv_paths):
+            print(f"    [{i+1}/{len(all_tsv_paths)}] {os.path.basename(path)}...",
+                  end="", flush=True)
+            with open(path, "rb") as f:
+                next(f)  # skip header
+                for raw in f:
+                    parts = raw.replace(b"\x00", b"").split(b"\t")
+                    if len(parts) >= 3:
+                        ip_set.add(
+                            parts[0].decode("utf-8", errors="replace").strip())
+                        ip_set.add(
+                            parts[2].decode("utf-8", errors="replace").strip())
+            print(" done")
+        ip_set.discard("")
+        print(f"    Found {len(ip_set)} unique IP addresses")
+
+        # ── Phase 2: insert netflow nodes ─────────────────────────────────
+        self.connect()
+        print("[*] Phase 2: Creating netflow nodes...")
+        ip_to_index = {}
+        for idx, ip in enumerate(sorted(ip_set)):
+            ip_to_index[ip] = idx
+            self.cur.execute(
+                """INSERT INTO netflow_node_table
+                   (node_uuid, hash_id, src_addr, src_port,
+                    dst_addr, dst_port, index_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (ip, sha256_hash(ip), ip, "0", ip, "0", idx),
+            )
+        self.conn.commit()
+        print(f"    Inserted {len(ip_to_index)} netflow nodes")
+
+        # Write ip_to_index to temp file for subprocess workers
+        idx_fd, idx_path = tempfile.mkstemp(suffix=".json", prefix="hv_idx_")
+        with os.fdopen(idx_fd, "w") as jf:
+            json.dump(ip_to_index, jf)
+
+        try:
+            total_events = 0
+            event_counter = 0
+
+            # ── Phase 3: Day 1 — deduplicated benign ─────────────────────
+            # Read ALL 43 files, extract benign rows (label=0), deduplicate
+            # by hashing (src_ip, dst_ip, edge_type, timestamp_us, pkt_len),
+            # offset timestamps to Day 1.
+            print("[*] Phase 3: Ingesting Day 1 (deduplicated benign from "
+                  f"{len(all_tsv_paths)} files)...")
+            self.disconnect()
+
+            day1_base_ns = _day_base_ns(1)
+            seen = set()  # md5 digests of unique benign rows
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tsv", prefix="hv_day1_")
+            os.close(tmp_fd)
+
+            try:
+                n = 0
+                with open(tmp_path, "wb") as out:
+                    for fi, path in enumerate(all_tsv_paths):
+                        new_in_file = 0
+                        print(f"    [{fi+1}/{len(all_tsv_paths)}] "
+                              f"{os.path.basename(path)}...",
+                              end="", flush=True)
+                        with open(path, "rb") as f:
+                            next(f)  # skip header
+                            for raw in f:
+                                parts = raw.replace(b"\x00", b"").split(b"\t")
+                                if len(parts) < 8:
+                                    continue
+                                label = parts[7].strip()
+                                if label != b"0":
+                                    continue  # skip attack rows
+
+                                src_ip = parts[0].decode(
+                                    "utf-8", "replace").strip()
+                                dst_ip = parts[2].decode(
+                                    "utf-8", "replace").strip()
+                                op = parts[4].decode(
+                                    "utf-8", "replace").strip()
+                                ts_us = parts[5].decode(
+                                    "utf-8", "replace").strip()
+                                pkt_len = parts[6].decode(
+                                    "utf-8", "replace").strip()
+
+                                if op not in VALID_EDGE_TYPES:
+                                    continue
+
+                                si = ip_to_index.get(src_ip)
+                                di = ip_to_index.get(dst_ip)
+                                if si is None or di is None:
+                                    continue
+
+                                # Deduplicate by full row content
+                                row_hash = hashlib.md5(
+                                    b"\t".join([
+                                        parts[0].strip(), parts[2].strip(),
+                                        parts[4].strip(), parts[5].strip(),
+                                        parts[6].strip(),
+                                    ])
+                                ).digest()
+                                if row_hash in seen:
+                                    continue
+                                seen.add(row_hash)
+
+                                try:
+                                    ts_ns = day1_base_ns + int(ts_us) * 1000
+                                except Exception:
+                                    continue
+
+                                sh = sha256_hash(src_ip)
+                                dh = sha256_hash(dst_ip)
+                                line = (
+                                    f"{sh}\t{si}\t{op}\t{dh}\t{di}\t"
+                                    f"evt_{event_counter + n}\t{ts_ns}\n"
+                                )
+                                out.write(line.encode("utf-8"))
+                                n += 1
+                                new_in_file += 1
+                        print(f" +{new_in_file:,} new")
+
+                del seen  # free memory (~200 MB)
+
+                # COPY into DB
+                self.connect()
+                with open(tmp_path, "rb") as f:
+                    self.cur.copy_expert(
+                        "COPY event_table (src_node, src_index_id, operation, "
+                        "dst_node, dst_index_id, event_uuid, timestamp_rec) "
+                        "FROM STDIN",
+                        f,
+                    )
+                self.conn.commit()
+                total_events += n
+                event_counter += n
+                print(f"    Day 1 benign: {n:,} unique events inserted")
+
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+            # ── Phase 4: Days 2-44 — attack files ────────────────────────
+            print("[*] Phase 4: Ingesting attack days (2-44)...")
+            for day, rel_path in ATTACK_DAY_MAP:
+                path = os.path.join(input_dir, rel_path)
+                attack_name = os.path.splitext(
+                    os.path.basename(rel_path))[0]
+                role = "val " if day <= 8 else "test"
+                print(f"    Day {day:2d} [{role}] {attack_name}...",
+                      end="", flush=True)
+
+                day_ns = _day_base_ns(day)
+                self.disconnect()
+
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    suffix=".tsv", prefix=f"hv_day{day}_")
+                os.close(tmp_fd)
+                try:
+                    result = subprocess.run(
+                        [
+                            sys.executable, "-c", _WORKER_SCRIPT,
+                            idx_path, path, tmp_path,
+                            str(event_counter), str(day_ns),
+                        ],
+                        capture_output=True, text=True,
+                    )
+                    if result.returncode != 0:
+                        print(f" ERROR (rc={result.returncode})")
+                        print(f"      stderr: {result.stderr[:400]}")
+                        continue
+
+                    n = int(result.stdout.strip())
+                    event_counter += n
+
+                    self.connect()
+                    with open(tmp_path, "rb") as f:
+                        self.cur.copy_expert(
+                            "COPY event_table (src_node, src_index_id, "
+                            "operation, dst_node, dst_index_id, event_uuid, "
+                            "timestamp_rec) FROM STDIN",
+                            f,
+                        )
+                    self.conn.commit()
+                    total_events += n
+                    print(f" {n:,} events")
+
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+
+        finally:
+            if os.path.exists(idx_path):
+                os.unlink(idx_path)
+
+        # Create index for faster timestamp-range queries
+        print("[*] Creating index on event_table.timestamp_rec...")
+        self.cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_ts "
+            "ON event_table (timestamp_rec);")
+        self.conn.commit()
+
+        print(f"[+] Total events inserted: {total_events:,}")
+        print("[+] Done")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Ingest HyperVision dataset into PostgreSQL for PIDSMaker"
+    )
+    parser.add_argument(
+        "--input", required=True,
+        help="Path to hypervision_dataset/ root directory",
+    )
+    parser.add_argument("--db-name", default="hypervision")
+    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--port", type=int, default=5432)
+    parser.add_argument("--user", default="postgres")
+    parser.add_argument("--password", default="postgres")
+    parser.add_argument(
+        "--create-db", action="store_true",
+        help="Create database if it doesn't exist",
+    )
+    args = parser.parse_args()
+
+    ingestor = HyperVisionIngestor(
+        db_name=args.db_name, host=args.host, port=args.port,
+        user=args.user, password=args.password,
+    )
+    if args.create_db:
+        ingestor.create_database()
+    ingestor.connect()
+    ingestor.create_schema()
+    ingestor.ingest(args.input)
+    ingestor.close()
+
+
+if __name__ == "__main__":
+    main()

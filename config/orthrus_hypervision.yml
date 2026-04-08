@@ -1,0 +1,10 @@
+_include_yml: orthrus_non_snooped_edge_ts
+
+# HyperVision has only netflow nodes (IP addresses).
+# subject and file node types do not exist in this dataset.
+construction:
+  node_label_features:
+    netflow: remote_ip, remote_port
+
+evaluation:
+  ground_truth_version: none

@@ -199,6 +199,25 @@ def generate_timestamps(start_time, end_time, interval_minutes):
     return timestamps
 
 
+def _day_to_dates(year_month, day):
+    """Convert a logical day number to start/stop date strings.
+
+    Uses timedelta so that day numbers > 31 roll into the next month correctly
+    (e.g. year_month='2024-01', day=32 -> '2024-02-01').
+
+    Args:
+        year_month: Base month string, e.g. '2024-01'
+        day: 1-based logical day number
+
+    Returns:
+        (date_start, date_stop): datetime strings 'YYYY-MM-DD HH:MM:SS'
+    """
+    base = datetime.strptime(year_month + "-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+    day_dt = base + timedelta(days=day - 1)
+    next_dt = base + timedelta(days=day)
+    return day_dt.strftime("%Y-%m-%d %H:%M:%S"), next_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def gen_edge_fused_tw(indexid2msg, cfg):
     """Generate time-windowed provenance graphs from database events.
 
@@ -246,8 +265,7 @@ def gen_edge_fused_tw(indexid2msg, cfg):
 
     log("Building graphs...")
     for day in days:
-        date_start = cfg.dataset.year_month + "-" + str(day) + " 00:00:00"
-        date_stop = cfg.dataset.year_month + "-" + str(day + 1) + " 00:00:00"
+        date_start, date_stop = _day_to_dates(cfg.dataset.year_month, day)
 
         timestamps = [date_start, date_stop]
         test_mode_set_done = False
@@ -511,15 +529,19 @@ def split_test_graphs_per_attack(cfg):
     graphs_dir = cfg.construction._graphs_dir
     test_file_to_attack_idx = dict(getattr(cfg.dataset, 'test_file_to_attack_idx', []))
 
-    # Build a map: day -> list of (attack_name, start_ns, end_ns)
+    # Build a map: logical_day -> list of (attack_name, start_ns, end_ns)
+    # Compute logical day via timedelta offset from year_month base so that
+    # dates rolling into the next month (e.g. 2024-02-01 for day 32 of 2024-01)
+    # are mapped back to the correct logical day number.
     day_to_attack_windows = defaultdict(list)
     year_month = cfg.dataset.year_month
+    base_date = datetime.strptime(year_month + "-01", "%Y-%m-%d")
     for attack_tuple in cfg.dataset.attack_to_time_window:
         attack_name = attack_tuple[0]
         start_str = attack_tuple[1]
         end_str = attack_tuple[2]
-        # Parse day from start string (e.g. "2017-07-05 ..." -> day 5)
-        day = int(start_str.split("-")[2].split(" ")[0])
+        attack_date = datetime.strptime(start_str.split(" ")[0], "%Y-%m-%d")
+        day = (attack_date - base_date).days + 1
         start_ns = datetime_to_ns_time_US(start_str)
         end_ns = datetime_to_ns_time_US(end_str)
         day_to_attack_windows[day].append((attack_name, start_ns, end_ns))

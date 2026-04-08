@@ -1,0 +1,9 @@
+config,epoch,attacks_detected,unique_tp_nodes,total_tp
+kairos_cicids_red,11,0/14,0,0
+orthrus_cicids_red,11,0/14,0,0
+kairos_cicids_kde_diff,11,2/14,1,2
+orthrus_cicids_kde_diff,11,3/14,1,3
+kairos_cicids_kde_ts,11,1/14,1,1
+orthrus_cicids_kde_ts,11,1/14,2,2
+kairos_cicids,11,2/14,2,3
+orthrus_cicids,11,0/14,0,0
