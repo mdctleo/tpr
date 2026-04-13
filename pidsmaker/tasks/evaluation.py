@@ -82,6 +82,17 @@ def standard_evaluation(cfg, evaluation_fn):
                 attack_stats["attack_idx"] = attack_idx
                 per_attack_stats.append((test_file, attack_stats))
 
+                # Log per-attack confusion matrix summary
+                log(
+                    f"  [{test_file}] TP={attack_stats.get('tp', '?')}, "
+                    f"FP={attack_stats.get('fp', '?')}, "
+                    f"TN={attack_stats.get('tn', '?')}, "
+                    f"FN={attack_stats.get('fn', '?')} | "
+                    f"Prec={attack_stats.get('precision', '?')}, "
+                    f"Rec={attack_stats.get('recall', '?')}, "
+                    f"F1={attack_stats.get('fscore', '?')}"
+                )
+
             # Aggregate per-attack stats to global epoch-level metrics.
             if len(per_attack_stats) == 0:
                 stats = {

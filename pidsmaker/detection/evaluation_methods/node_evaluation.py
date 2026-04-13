@@ -339,7 +339,6 @@ def main(
         attack_to_GPs = get_GP_of_each_attack(cfg)
     attack_to_TPs = defaultdict(int)
 
-    log("Analysis of malicious nodes:")
     nodes, y_truth, y_preds, pred_scores, max_val_loss_tw = [], [], [], [], []
     is_seen = []
     for nid, result in results.items():
@@ -357,17 +356,10 @@ def main(
         pred_scores.append(score)
         max_val_loss_tw.append(max_tw)
 
-        if y_true == 1:
-            log(
-                f"-> Malicious node {nid:<7}: loss={score:.3f} | is TP:"
-                + (" ✅ " if y_true == y_hat else " ❌ ")
-                + (node_to_path[nid]["path"])
-            )
-
-            if y_hat:
-                for att, d in attack_to_GPs.items():
-                    if nid in d["nids"]:
-                        attack_to_TPs[att] += 1
+        if y_true == 1 and y_hat:
+            for att, d in attack_to_GPs.items():
+                if nid in d["nids"]:
+                    attack_to_TPs[att] += 1
 
     attack2nodes = {k: v["nids"] for k, v in attack_to_GPs.items()}
     node2attacks = transform_attack2nodes_to_node2attacks(attack2nodes)

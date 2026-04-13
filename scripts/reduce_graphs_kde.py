@@ -70,6 +70,9 @@ DATASET_DIMENSIONS = {
     # CIC-IDS-2017 (netflow only: 1 node type, 3 edge types: TCP, UDP, Other)
     "CIC_IDS_2017": (1, 3),
     "CIC_IDS_2017_PER_ATTACK": (1, 3),
+    # HyperVision (netflow only: 1 node type, 9 edge types)
+    "HYPERVISION": (1, 9),
+    "HYPERVISION_PER_ATTACK": (1, 9),
 }
 
 

@@ -38,10 +38,32 @@ from pidsmaker.utils.utils import (
 def classifier_evaluation(y_test, y_test_pred, scores):
     labels_exist = sum(y_test) > 0
     if labels_exist:
-        tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred).ravel()
+        try:
+            # Use explicit labels to handle cases with only one class in predictions
+            tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred, labels=[0, 1]).ravel()
+        except ValueError:
+            # Fallback for edge cases
+            unique_true = set(y_test)
+            unique_pred = set(y_test_pred)
+            if len(unique_true) == 1 and len(unique_pred) == 1:
+                if list(unique_true)[0] == list(unique_pred)[0]:
+                    # All correct for single class
+                    if list(unique_true)[0] == 0:
+                        tn, fp, fn, tp = len(y_test), 0, 0, 0
+                    else:
+                        tn, fp, fn, tp = 0, 0, 0, len(y_test)
+                else:
+                    # All wrong for single class
+                    if list(unique_true)[0] == 0:
+                        tn, fp, fn, tp = 0, len(y_test), 0, 0
+                    else:
+                        tn, fp, fn, tp = 0, 0, len(y_test), 0
+            else:
+                log("WARNING: Computing confusion matrix failed with unexpected case.")
+                tn, fp, fn, tp = 0, 0, 0, 0
     else:
-        log("WARNING: Computing confusion matrix failed.")
-        tn, fp, fn, tp = 1, 1, 1, 1  # only to not break tests
+        log("WARNING: No positive labels in ground truth (sum(y_test)==0). Setting confusion matrix to zeros.")
+        tn, fp, fn, tp = len(y_test), 0, 0, 0  # All true negatives if no positive labels exist
 
     eps = 1e-12
     fpr = fp / (fp + tn + eps)
@@ -172,6 +194,7 @@ def plot_precision_recall(scores, y_truth, out_file):
     plt.yticks(precision_ticks)
 
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_simple_scores(scores, y_truth, out_file):
@@ -192,6 +215,7 @@ def plot_simple_scores(scores, y_truth, out_file):
 
     plt.tight_layout()  # Ensures everything fits within the figure area
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_score_seen(scores, y_truth, out_file):
@@ -212,6 +236,7 @@ def plot_score_seen(scores, y_truth, out_file):
 
     plt.tight_layout()  # Ensures everything fits within the figure area
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_scores_with_paths_node_level(
@@ -379,6 +404,7 @@ def plot_scores_with_paths_node_level(
     plt.xlim([min(scores), max(scores) * 1.5])  # Adjust xlim to make space for text
     plt.ylim([-1, 2])  # Adjust ylim to ensure the text is within the figure bounds
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_scores_with_paths_edge_level(
@@ -532,6 +558,7 @@ def plot_scores_with_paths_edge_level(
     plt.xlim([min(scores), max(scores) * 1.5])  # Adjust xlim to make space for text
     plt.ylim([-1, 2])  # Adjust ylim to ensure the text is within the figure bounds
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_scores_neat(scores, y_truth, nodes, node2attacks, out_file, threshold=None):
@@ -579,6 +606,7 @@ def plot_scores_neat(scores, y_truth, nodes, node2attacks, out_file, threshold=N
 
     plt.tight_layout()  # Ensures everything fits within the figure area
     plt.savefig(out_file, dpi=300)
+    plt.close()
 
 
 def plot_false_positives(y_true, y_pred, out_file):
@@ -608,6 +636,7 @@ def plot_false_positives(y_true, y_pred, out_file):
     plt.title("True Positives and False Positives in Predictions")
     plt.legend()
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_dor_recall_curve(scores, y_truth, out_file):
@@ -649,6 +678,7 @@ def plot_dor_recall_curve(scores, y_truth, out_file):
     plt.grid(True)
     plt.legend()
     plt.savefig(out_file)
+    plt.close()
 
 
 def plot_detected_attacks_vs_precision(scores, nodes, node2attacks, labels, out_file):
@@ -726,6 +756,7 @@ def plot_detected_attacks_vs_precision(scores, nodes, node2attacks, labels, out_
         plt.ylim(0, 100.5)
         plt.grid(True)
         plt.savefig(out_file)
+        plt.close()
     except:
         print("Error while generating ADP plot")
     return area_under_curve
@@ -800,6 +831,7 @@ def plot_recall_vs_precision(scores, nodes, node2attacks, labels, out_file):
     plt.ylim(0, 1)
     plt.grid(True)
     plt.savefig(out_file)
+    plt.close()
     return area_under_curve
 
 
@@ -809,14 +841,12 @@ def plot_discrimination_metric(scores, y_truth, out_file):
     anomalous_scores = scores[y_truth == 1]
     benign_scores = scores[y_truth == 0]
 
-    # Define the top K value
-    K = len(anomalous_scores)
-    if K == 0:
+    # Define the top K value — use the smaller of the two group sizes
+    # so that the arrays have matching lengths for element-wise comparison
+    if len(anomalous_scores) == 0 or len(benign_scores) == 0:
         return 0.0
 
-    # If there are no benign samples we cannot compute a discrimination metric
-    if len(benign_scores) == 0:
-        return 0.0
+    K = min(len(anomalous_scores), len(benign_scores))
 
     # Get top K scores for anomalies and benign samples
     top_anomalous_scores = np.sort(anomalous_scores)[-K:][::-1]
@@ -879,6 +909,7 @@ def plot_discrimination_metric(scores, y_truth, out_file):
     plt.legend()
     plt.grid(alpha=0.5)
     plt.savefig(out_file)
+    plt.close()
     return area
 
 
@@ -1175,11 +1206,31 @@ def compute_tw_labels(cfg):
 
 
 def build_attack_to_tw_indices(cfg):
-    """Build mapping attack_idx -> list[graph_idx] using edge_embed test ordering.
+    """Build mapping attack_idx -> list[edge_loss_file_idx] for per-attack evaluation.
 
-    The returned graph indices align with the `graph_idx` used in inference and
-    the prefixed edge-loss filenames (`00012_<start>~<end>.csv`).
+    Returns the edge_loss file enumeration indices (tw positions when iterating with
+    listdir_sorted over an epoch directory) that correspond to each attack.
+
+    Background: during inference the model iterates over ALL sub-time-window graphs
+    produced by the batching stage.  The graphs are ordered identically to the
+    alphabetically-sorted edge_embed test files.  Each edge_embed graph is split
+    into N_i sub-TWs, so the edge_loss directory contains sum(N_i) files with a
+    flat running prefix (00000, 00001, ...).
+
+    The sub-TWs for edge_embed graph 0 occupy the first N_0 files, followed by
+    N_1 files for graph 1, and so on.  This function detects those contiguous
+    blocks and maps each block to the corresponding attack_idx.
+
+    Steps:
+    1. From edge_embed test dir: enumerate graphs in sorted order → graph_idx → attack_idx.
+    2. From edge_embed test dir: extract the date each graph covers.
+    3. From edge_loss files (any epoch): scan in prefix order, detect contiguous
+       blocks that share the same date, and map each block to the matching
+       edge_embed graph (by order).
+    4. Return attack_idx → list[file_enumeration_index].
     """
+    import re
+
     test_file_to_attack_idx = dict(getattr(cfg.dataset, "test_file_to_attack_idx", []))
     attack_to_indices = defaultdict(list)
 
@@ -1187,13 +1238,79 @@ def build_attack_to_tw_indices(cfg):
     if not os.path.isdir(edge_embed_test_dir):
         return dict(attack_to_indices)
 
-    for graph_idx, f in enumerate(sorted(os.listdir(edge_embed_test_dir))):
+    # 1. Build ordered list of (graph_idx, attack_idx) from edge_embed test dir.
+    embed_files = sorted(os.listdir(edge_embed_test_dir))
+    graph_order = []  # list of attack_idx in edge_embed order
+    for graph_idx, f in enumerate(embed_files):
         if "__" not in f:
             continue
         parent_folder = f.split("__", 1)[0]
         attack_idx = test_file_to_attack_idx.get(parent_folder, None)
+        graph_order.append(attack_idx)
+
+    if not graph_order:
+        return dict(attack_to_indices)
+
+    # 2. Locate an epoch directory in edge_losses/test to read filenames.
+    test_losses_dir = os.path.join(cfg.training._edge_losses_dir, "test")
+    if not os.path.isdir(test_losses_dir):
+        return dict(attack_to_indices)
+
+    epoch_dirs = listdir_sorted(test_losses_dir)
+    if not epoch_dirs:
+        return dict(attack_to_indices)
+
+    first_epoch_dir = os.path.join(test_losses_dir, epoch_dirs[0])
+    if not os.path.isdir(first_epoch_dir):
+        return dict(attack_to_indices)
+
+    # 3. Detect contiguous blocks in the sorted edge_loss files.
+    #    Each block corresponds to one edge_embed graph (in order).
+    #    Block boundaries are detected by a change in the date portion
+    #    of the filename (YYYY-MM-DD after the prefix).
+    loss_files = listdir_sorted(first_epoch_dir)
+    if not loss_files:
+        return dict(attack_to_indices)
+
+    def extract_date(filename):
+        """Extract the first YYYY-MM-DD date from the filename after the prefix."""
+        m = re.search(r'(\d{4}-\d{2}-\d{2})', filename)
+        return m.group(1) if m else ""
+
+    # Identify contiguous blocks by date transitions
+    blocks = []  # list of (start_idx, end_idx) inclusive
+    prev_date = None
+    block_start = 0
+    for i, f in enumerate(loss_files):
+        date = extract_date(f)
+        if date != prev_date and prev_date is not None:
+            blocks.append((block_start, i - 1))
+            block_start = i
+        prev_date = date
+    blocks.append((block_start, len(loss_files) - 1))
+
+    # 4. Map each block to the corresponding edge_embed graph (by order).
+    if len(blocks) != len(graph_order):
+        log(
+            f"WARNING: build_attack_to_tw_indices: "
+            f"number of contiguous blocks ({len(blocks)}) != "
+            f"number of edge_embed graphs ({len(graph_order)}). "
+            f"Falling back to block-order mapping for min({len(blocks)}, {len(graph_order)}) graphs."
+        )
+
+    for block_idx, (start, end) in enumerate(blocks):
+        if block_idx >= len(graph_order):
+            break
+        attack_idx = graph_order[block_idx]
         if attack_idx is not None:
-            attack_to_indices[attack_idx].append(graph_idx)
+            attack_to_indices[attack_idx] = list(range(start, end + 1))
+
+    total_mapped = sum(len(v) for v in attack_to_indices.values())
+    log(
+        f"build_attack_to_tw_indices: mapped {total_mapped}/{len(loss_files)} "
+        f"edge_loss files across {len(attack_to_indices)} attacks "
+        f"({len(blocks)} contiguous blocks from {len(graph_order)} edge_embed graphs)"
+    )
 
     return dict(attack_to_indices)
 
