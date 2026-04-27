@@ -84,7 +84,11 @@ class BayesianGaussianMixtureGPU:
 
         self._check_parameters(x, valid_mask)
 
-        do_init = not (self.warm_start and hasattr(self, "_means"))
+        do_init = not (
+            self.warm_start
+            and hasattr(self, "_means")
+            and self._means.shape[1] == self._n_components_fit
+        )
         n_init = self.n_init if do_init else 1
 
         best_lower_bound = None
@@ -170,72 +174,6 @@ class BayesianGaussianMixtureGPU:
         self.lower_bounds_ = self._history_to_numpy(best_history, best_n_iter)
         return self
 
-    def fit_predict(
-        self,
-        X: ArrayLike,
-        sample_weight: Optional[ArrayLike] = None,
-        mask: Optional[ArrayLike] = None,
-    ):
-        self.fit(X, sample_weight=sample_weight, mask=mask)
-        return self.predict(X, mask=mask)
-
-    def predict(self, X: ArrayLike, mask: Optional[ArrayLike] = None):
-        x, valid_mask, _, input_was_batched = self._prepare_input(X, sample_weight=None, mask=mask)
-        weighted_log_prob = self._estimate_weighted_log_prob(x)
-        labels = torch.argmax(weighted_log_prob, dim=-1)
-        labels = labels.masked_fill(~valid_mask, -1)
-        labels = labels.detach().cpu().numpy()
-        return self._format_sample_output(labels, input_was_batched)
-
-    def predict_proba(self, X: ArrayLike, mask: Optional[ArrayLike] = None):
-        x, valid_mask, _, input_was_batched = self._prepare_input(X, sample_weight=None, mask=mask)
-        _, log_resp = self._estimate_log_prob_resp(x, valid_mask)
-        resp = torch.exp(log_resp).masked_fill(~valid_mask.unsqueeze(-1), 0.0)
-        resp = resp.detach().cpu().numpy()
-        return self._format_sample_output(resp, input_was_batched)
-
-    def score_samples(self, X: ArrayLike, mask: Optional[ArrayLike] = None):
-        x, valid_mask, _, input_was_batched = self._prepare_input(X, sample_weight=None, mask=mask)
-        weighted_log_prob = self._estimate_weighted_log_prob(x)
-        log_prob = torch.logsumexp(weighted_log_prob, dim=-1)
-        log_prob = log_prob.masked_fill(~valid_mask, float("nan"))
-        log_prob = log_prob.detach().cpu().numpy()
-        return self._format_sample_output(log_prob, input_was_batched)
-
-    def score(self, X: ArrayLike, mask: Optional[ArrayLike] = None):
-        log_prob = self.score_samples(X, mask=mask)
-        if isinstance(log_prob, list):
-            return [float(np.nanmean(batch)) for batch in log_prob]
-        if isinstance(log_prob, np.ndarray) and log_prob.ndim == 2:
-            return np.nanmean(log_prob, axis=1)
-        return float(np.nanmean(log_prob))
-
-    def sample(self, n_samples: int = 1, batch_index: Optional[int] = None):
-        if not hasattr(self, "_weights"):
-            raise RuntimeError("The model must be fitted before sampling.")
-        if n_samples < 1:
-            raise ValueError("n_samples must be >= 1.")
-
-        weights = self._weights
-        means = self._means
-        covariances = self._covariances
-
-        if weights.shape[0] > 1:
-            if batch_index is None:
-                raise ValueError("batch_index is required when sampling from a batched model.")
-            weights = weights[batch_index : batch_index + 1]
-            means = means[batch_index : batch_index + 1]
-            covariances = covariances[batch_index : batch_index + 1]
-
-        component_ids = torch.multinomial(weights[0], n_samples, replacement=True)
-        std = torch.sqrt(covariances[0, component_ids])
-        samples = means[0, component_ids] + std * torch.randn(
-            n_samples, device=self.device, dtype=self.dtype
-        )
-        return (
-            samples.detach().cpu().numpy().reshape(-1, 1),
-            component_ids.detach().cpu().numpy(),
-        )
 
     def _validate_constructor(self):
         if self.n_components < 1:
@@ -322,21 +260,38 @@ class BayesianGaussianMixtureGPU:
         counts = valid_mask.sum(dim=1)
         if torch.any(counts < 2):
             raise ValueError("Each batch item must contain at least 2 valid samples.")
-        if torch.any(counts < self.n_components):
-            raise ValueError(
-                "Each batch item must have at least n_components valid samples."
+
+        self._n_components_fit = self.n_components
+        self._active_components = torch.minimum(
+            counts,
+            torch.full_like(counts, self.n_components),
+        )
+        component_ids = torch.arange(self.n_components, device=self.device).unsqueeze(0)
+        self._component_mask = component_ids < self._active_components.unsqueeze(1)
+        self.n_components_fit_ = self._maybe_squeeze(
+            self._active_components.detach().cpu().numpy()
+        )
+
+        if self.verbose and torch.any(self._active_components < self.n_components):
+            min_count = int(self._active_components.min().item())
+            print(
+                "[BayesianGaussianMixtureGPU] per-row active components enabled "
+                f"(max={self.n_components}, min_active={min_count})",
+                flush=True,
             )
 
-        self.weight_concentration_prior_ = (
-            1.0 / self.n_components
-            if self.weight_concentration_prior is None
-            else float(self.weight_concentration_prior)
-        )
-        if self.weight_concentration_prior_ <= 0.0:
-            raise ValueError("weight_concentration_prior must be > 0.")
-        self._weight_concentration_prior_tensor = torch.as_tensor(
-            self.weight_concentration_prior_, dtype=self.dtype, device=self.device
-        )
+        if self.weight_concentration_prior is None:
+            self.weight_concentration_prior_ = None
+            self._weight_concentration_prior_tensor = (
+                1.0 / self._active_components.to(self.dtype).clamp_min(1.0)
+            ).unsqueeze(1)
+        else:
+            self.weight_concentration_prior_ = float(self.weight_concentration_prior)
+            if self.weight_concentration_prior_ <= 0.0:
+                raise ValueError("weight_concentration_prior must be > 0.")
+            self._weight_concentration_prior_tensor = torch.as_tensor(
+                self.weight_concentration_prior_, dtype=self.dtype, device=self.device
+            )
 
         self.mean_precision_prior_ = (
             1.0 if self.mean_precision_prior is None else float(self.mean_precision_prior)
@@ -402,10 +357,11 @@ class BayesianGaussianMixtureGPU:
         if self.init_params in {"kmeans", "k-means++"}:
             resp = self._init_resp_kmeans(x, valid_mask, generator)
         elif self.init_params == "random":
+            n_components_fit = self._n_components_fit
             resp = torch.rand(
                 x.shape[0],
                 x.shape[1],
-                self.n_components,
+                n_components_fit,
                 device=self.device,
                 dtype=self.dtype,
                 generator=generator,
@@ -424,6 +380,7 @@ class BayesianGaussianMixtureGPU:
         valid_mask: torch.Tensor,
         sample_weight: torch.Tensor,
     ):
+        resp = resp * self._component_mask.unsqueeze(1).to(self.dtype)
         nk, xk, sk = self._estimate_gaussian_parameters(x, resp, valid_mask, sample_weight)
         self._estimate_weights(nk)
         self._estimate_means(nk, xk)
@@ -439,10 +396,14 @@ class BayesianGaussianMixtureGPU:
         del valid_mask
         effective_resp = resp * sample_weight.unsqueeze(-1)
         eps = 10.0 * torch.finfo(self.dtype).eps
-        nk = effective_resp.sum(dim=1) + eps
-        xk = (effective_resp * x.unsqueeze(-1)).sum(dim=1) / nk
-        avg_x2 = (effective_resp * x.unsqueeze(-1).square()).sum(dim=1) / nk
+        component_mask = self._component_mask.to(self.dtype)
+        nk = effective_resp.sum(dim=1) + eps * component_mask
+        safe_nk = nk.clamp_min(eps)
+        xk = (effective_resp * x.unsqueeze(-1)).sum(dim=1) / safe_nk
+        avg_x2 = (effective_resp * x.unsqueeze(-1).square()).sum(dim=1) / safe_nk
         sk = (avg_x2 - xk.square()).clamp_min(0.0) + self.reg_covar
+        xk = torch.where(self._component_mask, xk, torch.zeros_like(xk))
+        sk = torch.where(self._component_mask, sk, torch.full_like(sk, self.reg_covar))
         sk = torch.where(torch.isfinite(sk), sk, torch.full_like(sk, self.reg_covar))
         return nk, xk, sk
 
@@ -502,7 +463,9 @@ class BayesianGaussianMixtureGPU:
         )
 
     def _estimate_weighted_log_prob(self, x: torch.Tensor):
-        return self._estimate_log_prob(x) + self._estimate_log_weights().unsqueeze(1)
+        weighted = self._estimate_log_prob(x) + self._estimate_log_weights().unsqueeze(1)
+        weighted = weighted.masked_fill(~self._component_mask.unsqueeze(1), -torch.inf)
+        return weighted
 
     def _estimate_log_prob_resp(self, x: torch.Tensor, valid_mask: torch.Tensor):
         weighted_log_prob = self._estimate_weighted_log_prob(x)
@@ -530,6 +493,7 @@ class BayesianGaussianMixtureGPU:
         sample_weight: torch.Tensor,
     ):
         resp = torch.exp(log_resp)
+        resp = resp * self._component_mask.unsqueeze(1).to(self.dtype)
         nk, xk, sk = self._estimate_gaussian_parameters(x, resp, valid_mask, sample_weight)
         self._estimate_weights(nk)
         self._estimate_means(nk, xk)
@@ -561,7 +525,8 @@ class BayesianGaussianMixtureGPU:
             ).sum(dim=1)
 
         resp = torch.exp(log_resp) * sample_weight.unsqueeze(-1)
-        entropy = -(resp * log_resp).sum(dim=(1, 2))
+        log_resp_safe = torch.where(resp > 0.0, log_resp, torch.zeros_like(log_resp))
+        entropy = -(resp * log_resp_safe).sum(dim=(1, 2))
 
         return (
             entropy
@@ -597,10 +562,15 @@ class BayesianGaussianMixtureGPU:
             prefix = torch.cumprod(tmp[:, :-1], dim=1)
             prefix = torch.cat([torch.ones_like(tmp[:, :1]), prefix], dim=1)
             self._weights = alpha / weight_dirichlet_sum * prefix
-            self._weights = self._weights / self._weights.sum(dim=1, keepdim=True)
         else:
             concentration = self._weight_concentration
-            self._weights = concentration / concentration.sum(dim=1, keepdim=True)
+            self._weights = concentration
+
+        # Keep inactive components fully disabled and renormalize active ones.
+        self._weights = self._weights * self._component_mask.to(self.dtype)
+        self._weights = self._weights / self._weights.sum(dim=1, keepdim=True).clamp_min(
+            torch.finfo(self.dtype).eps
+        )
 
         self._precisions = self._precisions_cholesky.square()
 
@@ -641,6 +611,7 @@ class BayesianGaussianMixtureGPU:
         generator: torch.Generator,
         num_iters: int = 10,
     ):
+        n_components_fit = self._n_components_fit
         centers = self._initial_centers_1d(x, valid_mask, generator)
         prev_centers = centers
 
@@ -648,7 +619,7 @@ class BayesianGaussianMixtureGPU:
             distances = torch.abs(x.unsqueeze(-1) - centers.unsqueeze(1))
             distances = distances.masked_fill(~valid_mask.unsqueeze(-1), torch.finfo(self.dtype).max)
             labels = torch.argmin(distances, dim=-1)
-            resp = torch.nn.functional.one_hot(labels, num_classes=self.n_components).to(self.dtype)
+            resp = torch.nn.functional.one_hot(labels, num_classes=n_components_fit).to(self.dtype)
             resp = resp * valid_mask.unsqueeze(-1)
             nk = resp.sum(dim=1)
             updated_centers = (resp * x.unsqueeze(-1)).sum(dim=1) / nk.clamp_min(1.0)
@@ -665,6 +636,7 @@ class BayesianGaussianMixtureGPU:
         valid_mask: torch.Tensor,
         generator: torch.Generator,
     ):
+        n_components_fit = self._n_components_fit
         batch_size, _ = x.shape
         counts = valid_mask.sum(dim=1)
         batch_indices = torch.arange(batch_size, device=self.device)
@@ -679,12 +651,12 @@ class BayesianGaussianMixtureGPU:
             ).masked_fill(~valid_mask, 2.0)
             first_idx = torch.argmin(random_scores, dim=1)
             centers = torch.empty(
-                batch_size, self.n_components, device=self.device, dtype=self.dtype
+                batch_size, n_components_fit, device=self.device, dtype=self.dtype
             )
             centers[:, 0] = x[batch_indices, first_idx]
             min_sq_dist = (x - centers[:, :1]).square().masked_fill(~valid_mask, 0.0)
 
-            for component in range(1, self.n_components):
+            for component in range(1, n_components_fit):
                 denom = min_sq_dist.sum(dim=1, keepdim=True)
                 probs = min_sq_dist / denom.clamp_min(eps)
                 fallback = first_idx
@@ -710,7 +682,7 @@ class BayesianGaussianMixtureGPU:
         positions = torch.linspace(
             0.0,
             1.0,
-            self.n_components,
+            n_components_fit,
             device=self.device,
             dtype=self.dtype,
         ).unsqueeze(0)
@@ -722,6 +694,7 @@ class BayesianGaussianMixtureGPU:
     def _init_resp_random_from_data(
         self, x: torch.Tensor, valid_mask: torch.Tensor, generator: torch.Generator
     ):
+        n_components_fit = self._n_components_fit
         batch_size = x.shape[0]
         random_scores = torch.rand(
             x.shape,
@@ -729,12 +702,12 @@ class BayesianGaussianMixtureGPU:
             dtype=self.dtype,
             generator=generator,
         ).masked_fill(~valid_mask, 2.0)
-        indices = torch.argsort(random_scores, dim=1)[:, : self.n_components]
+        indices = torch.argsort(random_scores, dim=1)[:, : n_components_fit]
         resp = torch.zeros(
-            batch_size, x.shape[1], self.n_components, device=self.device, dtype=self.dtype
+            batch_size, x.shape[1], n_components_fit, device=self.device, dtype=self.dtype
         )
         batch_idx = torch.arange(batch_size, device=self.device).unsqueeze(1).expand_as(indices)
-        component_idx = torch.arange(self.n_components, device=self.device).unsqueeze(0).expand_as(indices)
+        component_idx = torch.arange(n_components_fit, device=self.device).unsqueeze(0).expand_as(indices)
         resp[batch_idx, indices, component_idx] = 1.0
         return resp
 
@@ -797,13 +770,6 @@ class BayesianGaussianMixtureGPU:
         if self._input_was_batched:
             return value
         return np.squeeze(value, axis=0)
-
-    def _format_sample_output(self, value, input_was_batched):
-        if input_was_batched:
-            return value
-        if isinstance(value, np.ndarray) and value.ndim >= 1:
-            return value[0]
-        return value
 
     def _to_tensor(self, value, dtype: Optional[torch.dtype] = None):
         target_dtype = self.dtype if dtype is None else dtype
