@@ -187,3 +187,33 @@ postgres_data
 nltk_data
 
 .claude
+# Dataset and large generated files
+*.csv
+*.pcap
+*.bin
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.h5
+*.pt
+*.pth
+*.gz
+*.zip
+*.tar
+*.parquet
+*.feather
+*.arrow
+*.db
+*.sqlite
+GIDSREP/**/data/
+GIDSREP/**/results/
+GIDSREP/**/output/
+GIDSREP/**/weights/
+HyperVision/cache/
+HyperVision/cache_kde*/
+HyperVision/data/
+HyperVision/build/
+HyperVision/env/
+HyperVision/temp*/
+HyperVision/kde_features*/

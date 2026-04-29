@@ -1,0 +1,1 @@
+python run.py -t 5 -d 10 -e GCN -w 6 --lr 0.01   --fpweight 0.48  --dataset cic_2017

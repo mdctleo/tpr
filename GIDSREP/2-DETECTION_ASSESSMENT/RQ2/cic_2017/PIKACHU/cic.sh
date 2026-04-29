@@ -1,0 +1,1 @@
+python main.py --dataset cic_20 --input dataset/cic_20.csv --trainwin 25 --dimensions 100 --alpha 0.001 --support 15 

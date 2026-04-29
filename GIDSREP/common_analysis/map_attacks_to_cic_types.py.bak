@@ -1,0 +1,520 @@
+#!/usr/bin/env python3
+"""
+Map TP/FP/TN/FN from ARGUS, EULER, PIKACHU back to CIC-IDS 2017 attack types.
+
+This script does NOT rerun any model. It replays the data-loading / aggregation
+logic of each model to reconstruct which (src,dst) edges or flows belong to which
+CIC-IDS 2017 attack category (DDoS, PortScan, Botnet, etc.).
+
+Usage:
+    python map_attacks_to_cic_types.py
+
+Output:
+    - Per-model tables showing how many aggregated edges (ARGUS/EULER) or
+      individual flows (PIKACHU) exist for each attack type in the test set.
+    - This tells you the *maximum* each model can detect per attack type.
+    - Saved to  map_attacks_to_cic_types_results.json
+
+Requires:  pandas, numpy, pickle (stdlib), tqdm
+"""
+
+import os
+import sys
+import json
+import pickle
+from collections import defaultdict
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+# ============================================================================
+# Paths (adjust if your layout differs)
+# ============================================================================
+GIDSREP = "/scratch/asawan15/GIDSREP"
+DATA_PROC = os.path.join(GIDSREP, "1-DATA_PROCESSING", "cic_2017")
+MODELS    = os.path.join(GIDSREP, "2-DETECTION_ASSESSMENT", "RQ2", "cic_2017")
+
+# Original CIC-IDS 2017 merged CSV (has ' Label' and 'label' columns)
+CIC_MASTER_CSV = os.path.join(DATA_PROC, "cic_2017_1.csv")
+
+# EULER data dirs
+EULER_DIR     = os.path.join(MODELS, "EULER", "cic2017")
+EULER_RED_DIR = os.path.join(MODELS, "EULER", "cic2017_red")
+EULER_NMAP    = os.path.join(EULER_DIR, "nmap.pkl")
+
+# PIKACHU data
+PIKACHU_CSV     = os.path.join(MODELS, "PIKACHU", "dataset", "cic_20.csv")
+PIKACHU_RED_CSV = os.path.join(MODELS, "PIKACHU", "dataset", "cic_20_red.csv")
+
+# ARGUS uses same euler/ data dir for L_cic_flow (argus_flow/) or O_cic (euler/)
+# but the aggregation logic is identical to EULER
+ARGUS_DIR = os.path.join(DATA_PROC, "argus_flow")
+ARGUS_NMAP = os.path.join(ARGUS_DIR, "nmap.pkl") if os.path.exists(
+    os.path.join(DATA_PROC, "argus_flow", "nmap.pkl")
+) else EULER_NMAP
+
+# Test split thresholds
+EULER_ARGUS_TR_END = 29136   # ts >= this is test
+PIKACHU_TRAIN_SNAP = 24      # snapshots 0-24 are Monday (train)
+FILE_DELTA = 100_000
+
+# EULER/ARGUS delta (seconds) — from the run configs
+EULER_DELTA = 600   # --delta 10  → 10 * 60 = 600s
+ARGUS_DELTA_FLOW = 600  # --delta 10
+ARGUS_DELTA_NOFLOW = 900  # --delta 15
+
+
+# ============================================================================
+# Step 1: Load master CIC-IDS 2017 with attack-type labels
+# ============================================================================
+def load_master_cic():
+    """Load cic_2017_1.csv with (time_int, Source IP, Destination IP, Label, label)."""
+    print("Loading master CIC-IDS 2017 CSV (this may take a moment)...")
+    # First, discover column positions
+    header = pd.read_csv(CIC_MASTER_CSV, nrows=0, index_col=0, encoding='latin-1')
+    all_cols = list(header.columns)
+    need = ['time_int', ' Source IP', ' Destination IP', ' Label', 'label']
+    # +1 because index_col=0 shifts positions
+    use_positions = [0] + [all_cols.index(c) + 1 for c in need]
+    df = pd.read_csv(CIC_MASTER_CSV, index_col=0, usecols=use_positions,
+                      encoding='latin-1', low_memory=False)
+    cols = [c for c in need if c in df.columns]
+    df = df[cols].copy()
+    df.rename(columns={' Source IP': 'src_ip', ' Destination IP': 'dst_ip',
+                       ' Label': 'attack_type'}, inplace=True)
+    df['attack_type'] = df['attack_type'].str.strip()
+    print(f"  Loaded {len(df)} flows, {df['label'].sum()} attacks, "
+          f"{df['attack_type'].nunique()} attack types")
+    return df
+
+
+# ============================================================================
+# Step 2: Build reverse node map  (integer ID → IP string)
+# ============================================================================
+def load_nmap(path):
+    """nmap.pkl is a list where index = node ID, value = IP string."""
+    nmap = pickle.load(open(path, 'rb'))
+    if isinstance(nmap, list):
+        return nmap  # index → IP
+    elif isinstance(nmap, dict):
+        # dict: IP → ID, invert it
+        inv = [''] * (max(nmap.values()) + 1)
+        for ip, idx in nmap.items():
+            inv[idx] = ip
+        return inv
+    raise TypeError(f"Unexpected nmap type: {type(nmap)}")
+
+
+# ============================================================================
+# Step 3: Replay EULER/ARGUS aggregation for test edges
+# ============================================================================
+def replay_euler_argus_aggregation(data_dir, nmap, delta, tr_end, total_end=374762):
+    """
+    Replays the load_partial_lanl aggregation logic to reconstruct:
+      - For each test snapshot: which (src_ip, dst_ip) edges exist
+      - Whether each edge is attack (label = max of all constituent flows)
+      - Which raw flows (by row) belong to each edge
+
+    Returns:
+        list of dicts, one per aggregated test edge:
+        { 'src_ip', 'dst_ip', 'snapshot_start', 'label', 'flow_count',
+          'flow_timestamps' }
+    """
+    # Read all data files
+    all_lines = []
+    for fstart in range(0, total_end + FILE_DELTA, FILE_DELTA):
+        fpath = os.path.join(data_dir, f"{fstart}.txt")
+        if not os.path.exists(fpath):
+            continue
+        with open(fpath, 'r') as f:
+            for line in f:
+                parts = line.strip().split(',')
+                ts = int(parts[0])
+                if ts < tr_end:
+                    continue  # skip training data
+                src = int(parts[1])
+                dst = int(parts[2])
+                lbl = int(parts[-1])
+                all_lines.append((ts, src, dst, lbl))
+
+    print(f"  Read {len(all_lines)} test flows from {data_dir}")
+
+    # Group into delta windows and aggregate
+    edges_out = []
+    # Sort by timestamp
+    all_lines.sort(key=lambda x: x[0])
+
+    # Process snapshot by snapshot
+    snap_start = tr_end
+    snap_edges = {}  # (src, dst) → { 'label': max_label, 'count': N, 'timestamps': [] }
+
+    for ts, src, dst, lbl in tqdm(all_lines, desc="  Aggregating"):
+        # Check if we've crossed into a new snapshot
+        while ts >= snap_start + delta:
+            # Emit current snapshot
+            if snap_edges:
+                for (s, d), info in snap_edges.items():
+                    edges_out.append({
+                        'src_id': s, 'dst_id': d,
+                        'src_ip': nmap[s], 'dst_ip': nmap[d],
+                        'snapshot_start': snap_start,
+                        'label': info['label'],
+                        'flow_count': info['count'],
+                        'flow_timestamps': info['timestamps'],
+                    })
+            snap_edges = {}
+            snap_start += delta
+
+        # Skip self-loops (same as loader)
+        if src == dst:
+            continue
+
+        et = (src, dst)
+        if et in snap_edges:
+            snap_edges[et]['label'] = max(snap_edges[et]['label'], lbl)
+            snap_edges[et]['count'] += 1
+            snap_edges[et]['timestamps'].append(ts)
+        else:
+            snap_edges[et] = {'label': lbl, 'count': 1, 'timestamps': [ts]}
+
+    # Don't forget the last snapshot
+    if snap_edges:
+        for (s, d), info in snap_edges.items():
+            edges_out.append({
+                'src_id': s, 'dst_id': d,
+                'src_ip': nmap[s], 'dst_ip': nmap[d],
+                'snapshot_start': snap_start,
+                'label': info['label'],
+                'flow_count': info['count'],
+                'flow_timestamps': info['timestamps'],
+            })
+
+    return edges_out
+
+
+# ============================================================================
+# Step 4: Join aggregated edges to CIC-IDS attack types
+# ============================================================================
+def join_edges_to_attack_types(edges, master_df):
+    """
+    For each aggregated edge with label=1, look up which attack types
+    the constituent flows belong to.
+
+    Uses (src_ip, dst_ip, time_int) join against master CSV.
+    """
+    # Build a lookup: (src_ip, dst_ip) → list of (time_int, attack_type)
+    # Only for attack flows (label=1) to save memory
+    print("  Building attack flow lookup...")
+    atk = master_df[master_df['label'] == 1]
+    atk_lookup = defaultdict(list)
+    for _, row in tqdm(atk.iterrows(), total=len(atk), desc="  Indexing attacks"):
+        key = (row['src_ip'], row['dst_ip'])
+        atk_lookup[key].append((row['time_int'], row['attack_type']))
+
+    # For each attack edge, find which types it covers
+    edge_types = []
+    for e in tqdm(edges, desc="  Joining"):
+        if e['label'] == 0:
+            edge_types.append({**e, 'attack_types': {}, 'primary_type': 'BENIGN'})
+            continue
+
+        key = (e['src_ip'], e['dst_ip'])
+        ts_set = set(e['flow_timestamps'])
+        snap_start = e['snapshot_start']
+
+        # Find all attack flows for this (src, dst) pair within the snapshot window
+        types_count = defaultdict(int)
+        if key in atk_lookup:
+            for t, atype in atk_lookup[key]:
+                # Flow must be in the same snapshot time window
+                if snap_start <= t < snap_start + EULER_DELTA:
+                    types_count[atype] += 1
+
+        # If no match found (possible due to rounding), try broader match
+        if not types_count and key in atk_lookup:
+            for t, atype in atk_lookup[key]:
+                if t in ts_set:
+                    types_count[atype] += 1
+
+        primary = max(types_count, key=types_count.get) if types_count else 'UNKNOWN'
+        edge_types.append({
+            'src_ip': e['src_ip'], 'dst_ip': e['dst_ip'],
+            'snapshot_start': e['snapshot_start'],
+            'label': e['label'],
+            'flow_count': e['flow_count'],
+            'attack_types': dict(types_count),
+            'primary_type': primary,
+        })
+
+    return edge_types
+
+
+# ============================================================================
+# Step 5: PIKACHU flow-level join (much simpler — no aggregation)
+# ============================================================================
+def pikachu_flow_attack_types(csv_path, master_df, train_snap=PIKACHU_TRAIN_SNAP):
+    """
+    PIKACHU scores individual flows. Join each test flow back to attack type
+    via (src_ip, dst_ip, timestamp).
+    """
+    print(f"  Loading PIKACHU dataset: {csv_path}")
+    pik = pd.read_csv(csv_path, index_col=0)
+    pik_test = pik[pik['snapshot'] > train_snap].copy()
+    print(f"  Test flows: {len(pik_test)}, attacks: {pik_test['label'].sum()}")
+
+    # Join on timestamp + src + dst
+    # PIKACHU uses IP strings directly
+    # master_df has time_int, src_ip, dst_ip, attack_type
+    atk_master = master_df[master_df['label'] == 1][['time_int', 'src_ip', 'dst_ip', 'attack_type']]
+
+    # Build lookup
+    atk_lookup = {}
+    for _, row in tqdm(atk_master.iterrows(), total=len(atk_master), desc="  Indexing"):
+        key = (row['time_int'], row['src_ip'], row['dst_ip'])
+        atk_lookup[key] = row['attack_type']
+
+    # Count by attack type
+    type_counts = defaultdict(int)
+    total_attacks = 0
+    for _, row in tqdm(pik_test.iterrows(), total=len(pik_test), desc="  Joining"):
+        if row['label'] == 0:
+            continue
+        total_attacks += 1
+        key = (row['timestamp'], row['src_computer'], row['dst_computer'])
+        atype = atk_lookup.get(key, None)
+        if atype is None:
+            # Try reverse direction
+            key2 = (row['timestamp'], row['dst_computer'], row['src_computer'])
+            atype = atk_lookup.get(key2, 'UNKNOWN')
+        type_counts[atype] += 1
+
+    return dict(type_counts), total_attacks, len(pik_test)
+
+
+# ============================================================================
+# Step 6: Summary tables
+# ============================================================================
+def summarize_euler_argus(edge_types, model_name, config_name):
+    """Print and return summary of attack types for aggregated edges."""
+    attack_edges = [e for e in edge_types if e['label'] == 1]
+    benign_edges = [e for e in edge_types if e['label'] == 0]
+
+    # Count by primary type
+    type_counts = defaultdict(int)
+    type_flow_counts = defaultdict(int)
+    for e in attack_edges:
+        type_counts[e['primary_type']] += 1
+        type_flow_counts[e['primary_type']] += e['flow_count']
+
+    print(f"\n{'='*70}")
+    print(f"  {model_name} — {config_name}")
+    print(f"{'='*70}")
+    print(f"  Total test edges:   {len(edge_types)}")
+    print(f"  Attack edges:       {len(attack_edges)} (aggregated)")
+    print(f"  Benign edges:       {len(benign_edges)} (aggregated)")
+    print(f"\n  Attack edges by CIC-IDS 2017 type:")
+    print(f"  {'Attack Type':<35} {'Agg Edges':>10} {'Raw Flows':>10}")
+    print(f"  {'-'*35} {'-'*10} {'-'*10}")
+    for atype in sorted(type_counts, key=type_counts.get, reverse=True):
+        print(f"  {atype:<35} {type_counts[atype]:>10} {type_flow_counts[atype]:>10}")
+    print(f"  {'-'*35} {'-'*10} {'-'*10}")
+    print(f"  {'TOTAL':<35} {len(attack_edges):>10} {sum(type_flow_counts.values()):>10}")
+
+    return {
+        'model': model_name,
+        'config': config_name,
+        'total_test_edges': len(edge_types),
+        'attack_edges': len(attack_edges),
+        'benign_edges': len(benign_edges),
+        'by_type': dict(type_counts),
+        'by_type_flows': dict(type_flow_counts),
+    }
+
+
+def summarize_pikachu(type_counts, total_attacks, total_test, config_name):
+    """Print and return summary for PIKACHU."""
+    print(f"\n{'='*70}")
+    print(f"  PIKACHU — {config_name}")
+    print(f"{'='*70}")
+    print(f"  Total test flows:   {total_test}")
+    print(f"  Attack flows:       {total_attacks}")
+    print(f"  Benign flows:       {total_test - total_attacks}")
+    print(f"\n  Attack flows by CIC-IDS 2017 type:")
+    print(f"  {'Attack Type':<35} {'Flows':>10}")
+    print(f"  {'-'*35} {'-'*10}")
+    for atype in sorted(type_counts, key=type_counts.get, reverse=True):
+        print(f"  {atype:<35} {type_counts[atype]:>10}")
+    print(f"  {'-'*35} {'-'*10}")
+    print(f"  {'TOTAL':<35} {sum(type_counts.values()):>10}")
+
+    return {
+        'model': 'PIKACHU',
+        'config': config_name,
+        'total_test_flows': total_test,
+        'attack_flows': total_attacks,
+        'benign_flows': total_test - total_attacks,
+        'by_type': dict(type_counts),
+    }
+
+
+# ============================================================================
+# Main
+# ============================================================================
+def main():
+    results = {}
+
+    # --- Load master CSV ---
+    master = load_master_cic()
+    print(f"\nAttack types in CIC-IDS 2017:")
+    for atype, cnt in master[master['label']==1]['attack_type'].value_counts().items():
+        print(f"  {atype}: {cnt}")
+
+    # --- EULER / ARGUS: load nmap ---
+    nmap = load_nmap(EULER_NMAP)
+    print(f"\nNode map: {len(nmap)} IPs")
+
+    # -----------------------------------------------------------------------
+    # EULER Baseline & KDE (same data dir: euler/, delta=600)
+    # -----------------------------------------------------------------------
+    print("\n" + "="*70)
+    print("REPLAYING EULER AGGREGATION (euler/, delta=600s)")
+    print("="*70)
+    euler_edges = replay_euler_argus_aggregation(
+        EULER_DIR, nmap, EULER_DELTA, EULER_ARGUS_TR_END
+    )
+    print(f"  Total aggregated test edges: {len(euler_edges)}")
+    atk_count = sum(1 for e in euler_edges if e['label'] == 1)
+    print(f"  Attack edges: {atk_count}, Benign edges: {len(euler_edges) - atk_count}")
+
+    euler_typed = join_edges_to_attack_types(euler_edges, master)
+    results['euler_baseline'] = summarize_euler_argus(
+        euler_typed, 'EULER', 'Baseline & KDE (euler/, delta=600s)'
+    )
+
+    # -----------------------------------------------------------------------
+    # EULER Reduced (euler_red/, delta=600)
+    # -----------------------------------------------------------------------
+    print("\n" + "="*70)
+    print("REPLAYING EULER REDUCED AGGREGATION (euler_red/, delta=600s)")
+    print("="*70)
+    euler_red_edges = replay_euler_argus_aggregation(
+        EULER_RED_DIR, nmap, EULER_DELTA, EULER_ARGUS_TR_END
+    )
+    euler_red_typed = join_edges_to_attack_types(euler_red_edges, master)
+    results['euler_reduced'] = summarize_euler_argus(
+        euler_red_typed, 'EULER', 'Reduced (euler_red/, delta=600s)'
+    )
+
+    # -----------------------------------------------------------------------
+    # ARGUS with flow (L_cic_flow) — uses argus_flow/ or euler/, delta=600
+    # Check which dir exists
+    # -----------------------------------------------------------------------
+    argus_data = ARGUS_DIR if os.path.exists(os.path.join(ARGUS_DIR, '0.txt')) else EULER_DIR
+    argus_nmap_path = os.path.join(argus_data, 'nmap.pkl')
+    argus_nmap = load_nmap(argus_nmap_path) if os.path.exists(argus_nmap_path) else nmap
+
+    print("\n" + "="*70)
+    print(f"REPLAYING ARGUS L_cic_flow AGGREGATION ({argus_data}, delta={ARGUS_DELTA_FLOW}s)")
+    print("="*70)
+    argus_edges = replay_euler_argus_aggregation(
+        argus_data, argus_nmap, ARGUS_DELTA_FLOW, EULER_ARGUS_TR_END
+    )
+    argus_typed = join_edges_to_attack_types(argus_edges, master)
+    results['argus_flow'] = summarize_euler_argus(
+        argus_typed, 'ARGUS', 'L_cic_flow (delta=600s)'
+    )
+
+    # -----------------------------------------------------------------------
+    # ARGUS without flow (O_cic) — uses euler/, delta=900
+    # -----------------------------------------------------------------------
+    print("\n" + "="*70)
+    print(f"REPLAYING ARGUS O_cic AGGREGATION (euler/, delta={ARGUS_DELTA_NOFLOW}s)")
+    print("="*70)
+    argus_ocic_edges = replay_euler_argus_aggregation(
+        EULER_DIR, nmap, ARGUS_DELTA_NOFLOW, EULER_ARGUS_TR_END
+    )
+    argus_ocic_typed = join_edges_to_attack_types(argus_ocic_edges, master)
+    results['argus_ocic'] = summarize_euler_argus(
+        argus_ocic_typed, 'ARGUS', 'O_cic (euler/, delta=900s)'
+    )
+
+    # -----------------------------------------------------------------------
+    # PIKACHU Baseline & KDE (cic_20.csv)
+    # -----------------------------------------------------------------------
+    print("\n" + "="*70)
+    print("PIKACHU BASELINE & KDE (cic_20.csv)")
+    print("="*70)
+    pik_types, pik_atk, pik_total = pikachu_flow_attack_types(
+        PIKACHU_CSV, master
+    )
+    results['pikachu_baseline'] = summarize_pikachu(
+        pik_types, pik_atk, pik_total, 'Baseline & KDE (cic_20.csv)'
+    )
+
+    # -----------------------------------------------------------------------
+    # PIKACHU Reduced (cic_20_red.csv)
+    # -----------------------------------------------------------------------
+    if os.path.exists(PIKACHU_RED_CSV):
+        print("\n" + "="*70)
+        print("PIKACHU REDUCED (cic_20_red.csv)")
+        print("="*70)
+        pik_red_types, pik_red_atk, pik_red_total = pikachu_flow_attack_types(
+            PIKACHU_RED_CSV, master
+        )
+        results['pikachu_reduced'] = summarize_pikachu(
+            pik_red_types, pik_red_atk, pik_red_total, 'Reduced (cic_20_red.csv)'
+        )
+
+    # -----------------------------------------------------------------------
+    # Final cross-model summary
+    # -----------------------------------------------------------------------
+    print("\n" + "="*70)
+    print("CROSS-MODEL SUMMARY: Test Set Attack Composition")
+    print("="*70)
+
+    # Collect all attack types
+    all_types = set()
+    for r in results.values():
+        all_types.update(r.get('by_type', {}).keys())
+    all_types.discard('BENIGN')
+    all_types.discard('UNKNOWN')
+    all_types = sorted(all_types)
+
+    # Header
+    configs = list(results.keys())
+    header = f"{'Attack Type':<30}"
+    for c in configs:
+        header += f" {c:>18}"
+    print(header)
+    print("-" * len(header))
+
+    for atype in all_types:
+        row = f"{atype:<30}"
+        for c in configs:
+            val = results[c].get('by_type', {}).get(atype, 0)
+            row += f" {val:>18}"
+        print(row)
+
+    # Total row
+    row = f"{'TOTAL ATTACK':<30}"
+    for c in configs:
+        if 'attack_edges' in results[c]:
+            val = results[c]['attack_edges']
+        else:
+            val = results[c]['attack_flows']
+        row += f" {val:>18}"
+    print("-" * len(header))
+    print(row)
+
+    # Save results
+    out_path = os.path.join(os.path.dirname(__file__), 'map_attacks_to_cic_types_results.json')
+    # Remove non-serializable fields
+    for k, v in results.items():
+        v.pop('flow_timestamps', None)
+    json.dump(results, open(out_path, 'w'), indent=2, default=str)
+    print(f"\nResults saved to: {out_path}")
+
+
+if __name__ == '__main__':
+    main()

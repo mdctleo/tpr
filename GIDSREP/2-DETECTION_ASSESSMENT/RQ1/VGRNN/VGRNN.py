@@ -1,0 +1,327 @@
+import sys
+from copy import deepcopy
+from time import time
+from numpy.core.fromnumeric import argmax
+
+import pandas as pd 
+from sklearn.metrics import \
+    roc_auc_score as auc_score, \
+    f1_score, average_precision_score as ap_score
+import torch 
+from torch import nn 
+from torch.optim import Adam 
+from torch_geometric.nn import GCNConv
+
+from models.recurrent import GRU 
+from models.serial_models import \
+    VGRNN, \
+    SparseEGCN_H as EGCN_H, \
+    SparseEGCN_O as EGCN_O
+import loaders.load_optc as ld 
+from loaders.tdata import TData
+from utils import get_optimal_cutoff, get_score
+import random
+import numpy as np
+import argparse
+
+
+class TGCN(nn.Module):
+    def __init__(self, x_dim, h_dim, z_dim):
+        super(TGCN, self).__init__()
+
+        # Field for anom detection
+        self.cutoff = None
+
+        # Topological encoder
+        self.c1 = GCNConv(x_dim, h_dim)
+        self.relu = nn.ReLU()
+        self.drop = nn.Dropout(0.25)
+        self.c2 = GCNConv(h_dim, h_dim)
+        self.tanh = nn.Tanh() 
+
+        # Temporal encoder
+        self.rnn = GRU(h_dim, h_dim, z_dim)
+
+    
+    def forward(self, data, mask, h0=None):
+        zs = []
+        for i in range(data.T):
+            zs.append(
+                self.forward_once(
+                    data.ei_masked(mask, i),
+                    data.ew_masked(mask, i),
+                    data.xs
+                )
+            )
+
+        return self.rnn(torch.stack(zs), h0, include_h=True)
+        
+    def forward_once(self, ei, ew, x):
+        x = self.c1(x, ei, edge_weight=ew)
+        x = self.relu(x)
+        x = self.drop(x)
+        x = self.c2(x, ei, edge_weight=ew)
+        return self.tanh(x)
+
+
+    def decode(self, e, zs):
+        src,dst = e 
+        return torch.sigmoid(
+            (zs[src] * zs[dst]).sum(dim=1)
+        )
+
+    def bce(self, pos, neg):
+        EPS = 1e-8
+        ps = -torch.log(pos+EPS).mean()
+        ns = -torch.log(1-neg+EPS).mean()
+
+        return (ps + ns) * 0.5
+
+    def calc_loss(self, p,n,zs):
+        tot_loss = torch.zeros(1)
+
+        for i in range(len(zs)):
+            tot_loss += self.bce(
+                self.decode(p[i], zs[i]),
+                self.decode(n[i], zs[i])
+            )
+
+        return tot_loss.true_divide(len(zs))
+
+    def calc_scores(self, p,n,zs):
+        ps, ns = [], []
+        for i in range(len(zs)):
+            ps.append(self.decode(p[i], zs[i]))
+            ns.append(self.decode(n[i], zs[i]))
+        
+        return torch.cat(ps, dim=0), torch.cat(ns, dim=0)
+
+
+
+MIN = 1
+EPOCHS = 1500
+
+def train(model: nn.Module, data: TData,arg):
+    opt = Adam(model.parameters(), lr=float(arg.lr))
+
+    best = (None, 0)
+    no_progress = 0
+    times = []
+    print("Starting training")
+    
+    for e in range(EPOCHS):
+        model.train()
+        opt.zero_grad()
+        
+        start_t = time()
+        args = model.forward(data, TData.TRAIN)    
+        zs = args[0] if isinstance(model, VGRNN) else args
+        
+        p = [data.ei_masked(TData.TRAIN, i) for i in range(data.T)]
+        n = data.get_negative_edges(TData.TRAIN, nratio=10)
+        loss = model.calc_loss(p,n,zs)
+
+        loss.backward()
+        opt.step() 
+        elapsed = time() - start_t
+        times.append(elapsed)
+
+        print("[%d] Loss: %0.4f\t%0.4fs" % (e, loss.item(), elapsed))
+
+        model.eval()
+        with torch.no_grad():
+            args = model.forward(data, TData.TRAIN)
+            zs = args[0] if isinstance(model, VGRNN) else args
+            
+            p = [data.ei_masked(TData.VAL, i) for i in range(data.T)]
+            n = data.get_negative_edges(TData.VAL, nratio=10)
+            p,n = model.calc_scores(p,n,zs)
+
+            auc,ap = get_score(p,n)
+            print("\tVal  AUC: %0.4f  AP: %0.4f" % (auc,ap), end='')
+
+            tot = auc+ap
+            if tot > best[1]:
+                no_progress = 0
+                best = (deepcopy(model), tot)
+                print("*")
+            else:
+                print()
+                if e >= MIN:
+                    no_progress += 1 
+
+            if no_progress == PATIENCE:
+                print("Early stopping!")
+                break 
+
+    model = best[0]
+    args = model.forward(data, TData.ALL)
+    h0 = args[1] if isinstance(model, VGRNN) else None 
+    tpe = sum(times)/len(times)
+    print("TPE: %0.4f" % tpe)
+    import pickle
+    states = {'states': best[0], 'h0': h0}
+    f = open('./model/'+'lr'+str(arg.lr)+'d'+str(arg.snapshot)+'.pkl', 'wb+')
+    pickle.dump(states, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return model, h0, tpe
+
+
+def find_cutoff(model: nn.Module, data: TData, h0: torch.Tensor,fw):
+    p = data.eis
+    n = data.get_negative_edges(TData.ALL, nratio=10)
+
+    model.eval()
+    with torch.no_grad():
+        if isinstance(model, VGRNN):
+            zs, h0 = model.forward(data, TData.ALL, h0=h0)
+        else: 
+            zs = model.forward(data, TData.ALL)
+            h0 = torch.zeros((1))
+        
+        if model.pred:
+            p = p[1:]
+            n = n[1:]
+            zs = zs[:-1]
+        
+        p,n = model.calc_scores(p,n,zs)
+
+
+    model.cutoff = get_optimal_cutoff(p,n,fw=fw)
+    return h0 
+
+
+def test(model: nn.Module, data: TData, h0: torch.Tensor):
+    pred = 1 if model.pred else 0
+
+    model.eval()
+    with torch.no_grad():
+        if isinstance(model, VGRNN):
+            zs, _ = model.forward(data, TData.ALL, h0=h0)
+        else:
+            zs = model.forward(data, TData.ALL)
+
+        scores = torch.cat(
+            [
+                model.decode(
+                    data.eis[i+pred][0],
+                    data.eis[i+pred][1], 
+                    zs[i]
+                )
+                for i in range(data.T-pred)
+            ],
+            dim=0
+        )
+
+    # Unweighted scores
+    y = torch.cat(data.ys[pred:])
+    print(y.sum())
+    y_hat = torch.zeros(scores.size(0))
+    y_hat[scores <= model.cutoff] = 1
+
+    uw_tpr = y_hat[y==1].mean() 
+    uw_fpr = y_hat[y==0].mean() 
+    
+    uw_tp = y_hat[y==1].sum()
+    uw_fp = y_hat[y==0].sum()
+    uw_p=uw_tp/(uw_tp+uw_fp)
+    uw_f1 = f1_score(y, y_hat)
+    uw_auc = auc_score(y, 1-scores)
+    uw_ap = ap_score(y, 1-scores)
+   
+    # Weighted Scores
+    weights = torch.cat(data.cnt[pred:])
+
+    alerts = y_hat * weights
+    tp = alerts[y==1].sum()
+    fp = alerts[y==0].sum()
+    p=tp/(tp+fp)
+    tpr = tp / weights[y==1].sum() 
+    fpr = fp / weights[y==0].sum() 
+
+    f1 = f1_score(y, y_hat, sample_weight=weights)
+    auc = auc_score(y, 1-scores, sample_weight=weights)
+    ap = ap_score(y, 1-scores, sample_weight=weights)
+
+    print('uw')
+    print("TPR: %0.8f, FPR: %0.8f" % (uw_tpr, uw_fpr))
+    print("TP: %d  FP: %d" % (uw_tp, uw_fp))
+    print("F1: %0.8f" % uw_f1)
+    print("AUC: %0.4f" % uw_auc)
+    print("AP: %0.8f" % uw_ap)
+
+    return {
+        'uw_tpr': uw_tpr, 'uw_fpr': uw_fpr,'uw_p':uw_p,
+        'uw_tp': uw_tp, 'uw_fp': uw_fp, 
+        'uw_f1': uw_f1, 'uw_auc': uw_auc, 
+        'uw_ap': uw_ap,'can_uw':uw_ap+uw_auc,"cut":model.cutoff
+    }
+
+
+def run_all(is_pred, iter,arg):
+    print() 
+    print(iter)
+    print() 
+
+    data = LOADER(8, start=TR_START, end=TR_END, delta=DELTA)
+    model = MODEL(data.xs.size(1), arg.dimention, int(arg.dimention/2), pred=is_pred)
+
+    st = time()
+    model, h0, tpe = train(model, data,arg)N
+    tr_time = time() - st
+
+    data = LOADER(8, start=VAL_START, end=VAL_END, delta=DELTA)
+    h0 = find_cutoff(model, data, h0,arg.fw)
+
+    data = LOADER(8, start=TE_START, end=TE_END, delta=DELTA, is_test=True)
+    stats = test(model, data, h0)
+    stats['tpe'] = tpe 
+    stats['tr_time'] = tr_time
+
+    return stats
+
+MODEL = VGRNN 
+PRED =  False
+
+def parse_args():
+    arg = argparse.ArgumentParser("walk")
+    arg.add_argument('-n', '--dataset', type=str, default='OPTC',help='dataset name')
+    arg.add_argument('-s', '--snapshot', type=float, default=0.5,help='length of snapshot')
+    arg.add_argument('-dim', '--dimention', type=int, default=32,help='dimention')
+    arg.add_argument('-l', '--lr', type=float, default=0.005,help='learning rate')
+    arg.add_argument('-p', '--patience', type=int, default=32,help='patience')
+    arg.add_argument('-f', '--fw', type=float, default=0.5,help='Threshold Weight')
+
+    return arg.parse_args()
+
+if __name__ == '__main__':
+    arg = parse_args()
+    PATIENCE = arg.patience
+    print(PATIENCE)
+    DELTA=  int(60**2*arg.snapshot)
+    print(DELTA)
+    TR_START=0
+    TR_END=ld.DATE_OF_EVIL_LANL-max((ld.DATE_OF_EVIL_LANL - TR_START) // 20, DELTA*2)
+    VAL_START=TR_END
+    VAL_END=ld.DATE_OF_EVIL_LANL
+
+    TE_START=ld.DATE_OF_EVIL_LANL
+    TE_END = ld.TIMES['all']
+
+    LOADER = ld.load_lanl_dist 
+    OUT_F = 'result_RQ1.txt'
+    stats = [run_all(PRED, i,arg) for i in range(5)]
+    stats = pd.DataFrame(stats)
+    mean = stats.mean().to_csv().replace(',', '\t')
+    std=stats.sem().to_csv().replace(',', '\t')
+    full = stats.to_csv(index=False, header=False).replace(",", ', ')
+
+    with open(OUT_F, 'a+') as f:
+        f.write("Dataset: " +arg.dataset+'\n')
+        f.write("Delta: %0.3f" % (DELTA/3600)+'\n')
+        f.write('lr:'+ str(arg.lr)+'\n')
+        f.write('patience:'+ str(arg.patience)+'\n')
+        f.write(str(mean)+'\n')
+        f.write(str(std)+'\n')
+        f.write(str(full)+'\n\n')
+    
