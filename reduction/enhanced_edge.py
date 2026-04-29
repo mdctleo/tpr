@@ -246,22 +246,6 @@ class EnhancedEdge():
         # normalized_weights = all_weights / self.total_data_length
 
         return all_points, all_weights
-    
-    def compute_average_log_likelihood(self, timestamps=None, sample_size=10000):
-        if self.kde is None:
-            return None
-        data_2d, _ = self._resolve_timestamps(timestamps)
-        if data_2d is None or data_2d.shape[0] == 0:
-            return None
-
-        # Uniformly subsample for speed on large edges.
-        if data_2d.shape[0] > sample_size:
-            idx = np.random.choice(data_2d.shape[0], size=sample_size, replace=False)
-            sampled_data = data_2d[idx]
-        else:
-            sampled_data = data_2d
-
-        return -np.mean(self.kde.score_samples(sampled_data))
 
     def _resolve_timestamps(self, timestamps):
         if timestamps is None:
@@ -363,62 +347,78 @@ class EnhancedEdge():
 
         return kl_divergence
     
-    def compute_wasserstein_distance(self, timestamps=None, grid_size=10000):
-        """
-        Compute the Wasserstein distance between the true density and the KDE density.
-
-        Parameters:
-        timestamps (np.ndarray): The input data points.
-        grid_size (int): Number of points to evaluate the densities on.
-
-        Returns:
-        float: Wasserstein distance value.
-        """
+    def compute_average_log_likelihood(self, timestamps=None, sample_size=10000):
         if self.kde is None:
             return None
-
-        context = self._build_density_context(timestamps=timestamps, grid_size=grid_size)
-        if context is None:
+        data_2d, _ = self._resolve_timestamps(timestamps)
+        if data_2d is None or data_2d.shape[0] == 0:
             return None
 
-        grid = context["grid"]
-        true_density = context["true_density"]
-        kde_density = context["kde_density"]
+        # Uniformly subsample for speed on large edges.
+        if data_2d.shape[0] > sample_size:
+            idx = np.random.choice(data_2d.shape[0], size=sample_size, replace=False)
+            sampled_data = data_2d[idx]
+        else:
+            sampled_data = data_2d
 
-        # Compute Wasserstein distance
-        wasserstein_dist = wasserstein_distance(grid, grid, u_weights=true_density, v_weights=kde_density)
-
-        return wasserstein_dist
+        return -np.mean(self.kde.score_samples(sampled_data))
     
-    def compute_integrated_square_error(self, timestamps=None, grid_size=10000):
-        """
-        Compute the Integrated Square Error (ISE) between the true density and the KDE density.
+    # def compute_wasserstein_distance(self, timestamps=None, grid_size=10000):
+    #     """
+    #     Compute the Wasserstein distance between the true density and the KDE density.
 
-        Parameters:
-        timestamps (np.ndarray): The input data points.
-        grid_size (int): Number of points to evaluate the densities on.
+    #     Parameters:
+    #     timestamps (np.ndarray): The input data points.
+    #     grid_size (int): Number of points to evaluate the densities on.
 
-        Returns:
-        float: Integrated Square Error value.
-        """
-        if self.kde is None:
-            return None
+    #     Returns:
+    #     float: Wasserstein distance value.
+    #     """
+    #     if self.kde is None:
+    #         return None
 
-        context = self._build_density_context(timestamps=timestamps, grid_size=grid_size)
-        if context is None:
-            return None
+    #     context = self._build_density_context(timestamps=timestamps, grid_size=grid_size)
+    #     if context is None:
+    #         return None
 
-        grid = context["grid"]
-        true_density = context["true_density"]
-        kde_density = context["kde_density"]
+    #     grid = context["grid"]
+    #     true_density = context["true_density"]
+    #     kde_density = context["kde_density"]
 
-        # Compute the squared difference between the densities
-        squared_difference = (true_density - kde_density) ** 2
+    #     # Compute Wasserstein distance
+    #     wasserstein_dist = wasserstein_distance(grid, grid, u_weights=true_density, v_weights=kde_density)
 
-        # Compute the Integrated Square Error (ISE) by integrating the squared difference
-        ise = np.trapezoid(squared_difference, x=grid)
+    #     return wasserstein_dist
+    
+    # def compute_integrated_square_error(self, timestamps=None, grid_size=10000):
+    #     """
+    #     Compute the Integrated Square Error (ISE) between the true density and the KDE density.
 
-        return ise
+    #     Parameters:
+    #     timestamps (np.ndarray): The input data points.
+    #     grid_size (int): Number of points to evaluate the densities on.
+
+    #     Returns:
+    #     float: Integrated Square Error value.
+    #     """
+    #     if self.kde is None:
+    #         return None
+
+    #     context = self._build_density_context(timestamps=timestamps, grid_size=grid_size)
+    #     if context is None:
+    #         return None
+
+    #     grid = context["grid"]
+    #     true_density = context["true_density"]
+    #     kde_density = context["kde_density"]
+
+    #     # Compute the squared difference between the densities
+    #     squared_difference = (true_density - kde_density) ** 2
+
+    #     # Compute the Integrated Square Error (ISE) by integrating the squared difference
+    #     ise = np.trapz(squared_difference, x=grid)
+
+    #     return ise
 
 
     def visualize_distribution(self, timestamps, log_scale=False, name=None, scaler=None):

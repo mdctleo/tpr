@@ -23,12 +23,18 @@ def create_and_merge_graph(file_paths, target_nodes, args):
     total_edge_count = 0
     unique_nodes = set()
 
+    csv_read_kwargs = {
+        "engine": "c",
+        "dtype": str,
+        "on_bad_lines": "warn",
+    }
+
     print(f"Reading and merging {len(file_paths)} file(s)...", flush=True)
 
     for file_index, file_path in enumerate(tqdm(file_paths, desc="files"), start=1):
         print(f"Processing file {file_index}/{len(file_paths)}: {file_path}", flush=True)
 
-        chunk_iter = pd.read_csv(file_path, chunksize=100000)
+        chunk_iter = pd.read_csv(file_path, chunksize=500000, **csv_read_kwargs)
         for chunk_index, df in enumerate(tqdm(chunk_iter, desc=f"chunks[{file_index}]", leave=False), start=1):
             
             # target_nodes = ["192.168.10.50"]
@@ -50,6 +56,9 @@ def create_and_merge_graph(file_paths, target_nodes, args):
             unique_nodes.update(df["node1_id"].unique())
             unique_nodes.update(df["node2_id"].unique())
 
+            # Read config forces string dtype; convert to integer epoch safely before scaling.
+            df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+            df["timestamp"] = df["timestamp"].astype(np.int64)
             df["timestamp"] = df["timestamp"] / 1e9
 
             df = df[["node1_id", "node2_id", "syscall", "timestamp"]]

@@ -190,6 +190,8 @@ nltk_data
 
 reduction/datasets/
 reduction/kde_visualizations/
+reduction/results/
 *.out
 *.sub
 *.pkl
+faust/

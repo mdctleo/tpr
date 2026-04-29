@@ -1,15 +1,6 @@
 import argparse
-from BayesianGaussianMixtureGPU import BayesianGaussianMixtureGPU
-from utils import ks_test_kdes
-import pickle
-from detection import create_edge_features, evaluate_autoencoder, create_true_labels, train_baseline
 import numpy as np
-import pandas as pd
-from create_graph_memory import merge_two_merged_edges, separate_two_merged_edges
-from datetime import datetime
-from online_detection import train_recency_detector, detect_recency_detector
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from experiment_helper import enhanced_edges_to_pickle_dict, gpu_batches_to_enhanced_edges, merged_edges_to_matrix, reduce_helper, split_data, prep_data, process_splits, evaluate_enhancement, split_data_cic_ids, fit_data, set_adversarial_edge_timestamps, load_merged_edges, filter_merged_edges, scale_merged_edges, fit_batched_gpu_dpgmm, gmms_to_enhanced_edges
+from experiment_helper import fit_batched_dbstream, evaluate_enhancement_storage, evaluate_enhancement_fidelity, load_merged_edges, filter_merged_edges, scale_merged_edges, fit_batched_gpu_dpgmm, split_merged_edges_by_datapoint_count, merge_gmm_grid_with_batch_edges, draw_gmm_distribution_over_data, find_multimodal_edges
 import random
 import torch
 import pyro
@@ -58,40 +49,16 @@ if __name__ == "__main__":
     parser.add_argument("--visualize", default=False, action="store_true", help="Whether to visualize the results or not")
     parser.add_argument("--static_detection", default=False, action="store_true", help="Whether to use static detection or not")
     parser.add_argument("--use_density", default=False, action="store_true", help="Whether to use density or not")
+    parser.add_argument("--use_timestamp_differences", default=False, action="store_true", help="Whether to use timestamp difference or not")
 
     args = parser.parse_args()
 
-
-    # if args.experiment_type == "reduction_kde_e5_trace":
-    #     args.kernel = "gaussian"
-    #     args.sys_call = True
-    #     args.zero_center = False
-    #     args.detection = False
-    #     args.visualize = True
-
-    #     merged_edges, _ = prep_data("./datasets/E5_Trace/*.csv", None, args)
-    #     enhanced_edges = fit_data(merged_edges, args)
-    #     evaluate_enhancement("./datasets/E5_Trace/*.csv", enhanced_edges, merged_edges, args)
-
-    # elif args.experiment_type == "reduction_dpgmm_e5_trace":
-
-    #     args.sys_call = True
-    #     args.use_dpgmm = True
-    #     args.zero_center = False
-    #     args.detection = False
-    #     # args.visualize = True
-    #     args.K = 100
-
-    #     merged_edges, _ = prep_data("./datasets/E5_Trace/*.csv", None, args)
-    #     enhanced_edges = fit_data(merged_edges, args)
-    #     evaluate_enhancement("./datasets/E5_Trace/*.csv", enhanced_edges, merged_edges, args)
 
     if args.experiment_type == "reduction_dpgmm_e3_theia":
 
         args.sys_call = True
         args.use_dpgmm = True
         args.zero_center = False
-        args.detection = True
         args.visualize = True
         args.K = 100
         args.scaler_type = "minmax"
@@ -101,7 +68,7 @@ if __name__ == "__main__":
         gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
             raw_merged_edges,
             n_components=args.K,
-            min_count=100,
+            min_count=10,
             scaler_type=args.scaler_type,
             long_data_mode=args.long_data_mode,
             long_data_threshold=50000,
@@ -111,20 +78,269 @@ if __name__ == "__main__":
             device="cuda",
         )
 
-        enhanced_edges = gmms_to_enhanced_edges(gmms, scaled_merged_edges, args)
+        evaluate_enhancement_storage(gmms, scaled_merged_edges)
 
-        # enhanced_edges_to_pickle_dict(
-        #     "e3_theia_dpgmm_enhanced_edges_dpgmm.pkl",
-        #     enhanced_edges,
-        #     scalers,
-        # )
+    elif args.experiment_type == "reduction_dpgmm_e3_clearscope":
+        args.visualize = True
+        args.K = 100
+        args.scaler_type = "standard"
+        args.long_data_mode = "random"
+        args.use_timestamp_differences = True
 
-        evaluate_enhancement(
-            "./datasets/e3_theia/edges_parsed.csv",
-            enhanced_edges,
-            scaled_merged_edges,
-            args,
+        raw_merged_edges, _ = load_merged_edges("./datasets/e3_clearscope/edges_parsed.csv", None, args)
+        gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+            raw_merged_edges,
+            n_components=args.K,
+            min_count=10,
+            scaler_type=args.scaler_type,
+            long_data_mode=args.long_data_mode,
+            long_data_threshold=50000,
+            batch_size=256,
+            max_iter=100,
+            random_state=42,
+            device="cuda",
         )
+
+        evaluate_enhancement_storage(gmms, scaled_merged_edges)
+        evaluate_enhancement_fidelity(gmms, scaled_merged_edges, batch_size=32)
+
+    elif args.experiment_type == "reduction_dpgmm_e3_cadets":
+        args.sys_call = True
+        args.use_dpgmm = True
+        args.zero_center = False
+        args.visualize = True
+        args.K = 100
+        args.scaler_type = "minmax"
+        args.long_data_mode = "random"
+
+        raw_merged_edges, _ = load_merged_edges("./datasets/e3_cadets/edges_parsed.csv", None, args)
+        gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+            raw_merged_edges,
+            n_components=args.K,
+            min_count=10,
+            scaler_type=args.scaler_type,
+            long_data_mode=args.long_data_mode,
+            long_data_threshold=50000,
+            batch_size=256,
+            max_iter=100,
+            random_state=42,
+            device="cuda",
+        )
+
+        evaluate_enhancement_storage(gmms, scaled_merged_edges)
+
+    elif args.experiment_type == "reduction_dpgmm_e5_theia":
+        args.sys_call = True
+        args.use_dpgmm = True
+        args.zero_center = False
+        args.visualize = True
+        args.K = 100
+        args.scaler_type = "minmax"
+        args.long_data_mode = "random"
+
+        raw_merged_edges, _ = load_merged_edges("./datasets/e5_theia/edges_parsed.csv", None, args)
+        gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+            raw_merged_edges,
+            n_components=args.K,
+            min_count=10,
+            scaler_type=args.scaler_type,
+            long_data_mode=args.long_data_mode,
+            long_data_threshold=50000,
+            batch_size=256,
+            max_iter=100,
+            random_state=42,
+            device="cuda",
+        )
+
+        evaluate_enhancement_storage(gmms,  scaled_merged_edges)
+
+
+    elif args.experiment_type == "reduction_truncation_tradeoff":
+        args.K = 100
+        args.scaler_type = "maxabs"
+        args.long_data_threshold = 50000
+        args.long_data_mode = "random"
+        args.use_timestamp_differences=True
+
+        datasets = ["e3_clearscope", "e3_cadets", "e3_theia"]
+        # truncate_thresholds = [0.90]
+        truncate_thresholds = [0.99, 0.95, 0.90]
+        # truncate_thresholds = [0.99]
+
+        for dataset in tqdm(datasets, total=len(datasets), desc="Processing datasets..."):
+            for truncate_threshold in tqdm(truncate_thresholds, total=len(truncate_thresholds), desc="Processing truncation thresholds..."):
+                print(f"### Currently processing dataset {dataset} with truncation threshold {truncate_threshold} ###", flush=True)
+                raw_merged_edges, _ = load_merged_edges(f"./datasets/{dataset}/edges_parsed.csv", None, args)
+                gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+                    raw_merged_edges,
+                    n_components=args.K,
+                    scaler_type=args.scaler_type,
+                    long_data_mode=args.long_data_mode,
+                    long_data_threshold=args.long_data_threshold,
+                    min_count=10,
+                    batch_size=256,
+                    max_iter=100,
+                    random_state=42,
+                    truncate_threshold=truncate_threshold,
+                    device="cuda",
+                    preprocessed=False
+                )
+
+                evaluate_enhancement_storage(gmms, scaled_merged_edges)
+                evaluate_enhancement_fidelity(gmms, scaled_merged_edges, batch_size=32)
+
+
+        print("Finished Experiment!")
+
+    elif args.experiment_type == "reduction_sampling_tradeoff":
+        args.K = 100
+        args.scaler_type = "maxabs"
+        args.long_data_mode = "random"
+        args.truncate_threshold=0.99
+        args.use_timestamp_differences=True
+
+        datasets = ["e3_clearscope", "e3_cadets", "e3_theia"]
+        long_data_thresholds = [10000, 25000, 40000]
+        # datasets = ["e5_theia"]
+        # truncate_thresholds = [0.99, 0.95, 0.90]
+
+        for dataset in tqdm(datasets, total=len(datasets), desc="Processing datasets..."):
+            for long_data_threshold in tqdm(long_data_thresholds, total=len(long_data_thresholds), desc="Processing long data thresholds..."):
+                print(f"### Currently processing dataset {dataset} with long data threshold {long_data_threshold} ###", flush=True)
+                raw_merged_edges, _ = load_merged_edges(f"./datasets/{dataset}/edges_parsed.csv", None, args)
+                gmms, scaled_merged_edges = fit_batched_gpu_dpgmm(
+                    raw_merged_edges,
+                    n_components=args.K,
+                    long_data_mode=args.long_data_mode,
+                    long_data_threshold=long_data_threshold,
+                    scaler_type=args.scaler_type,
+                    batch_size=256,
+                    max_iter=100,
+                    min_count=10,
+                    random_state=42,
+                    truncate_threshold=args.truncate_threshold,
+                    device="cuda"
+                )
+
+                evaluate_enhancement_storage(gmms, scaled_merged_edges)
+                evaluate_enhancement_fidelity(gmms, scaled_merged_edges, batch_size=32)
+
+        print("Finished Experiment!")
+
+    elif args.experiment_type == "update_fidelity":
+        args.K = 100
+        args.scaler_type = "maxabs"
+        args.long_data_mode = "random"
+        args.truncate_threshold = 0.99
+        args.long_data_threshold = 50000
+        args.use_timestamp_differences=True
+
+        datasets = ["e3_clearscope", "e3_cadets", "e3_theia"]
+        # batch_update_size = [1000, 5000, 10000]
+        # datasets = ["e3_clearscope"]
+        # batch_update_size = [100000, 250000, 500000]
+        batch_update_size = [25000, 50000, 100000]
+        # batch_update_size = [100000]
+
+        for dataset in tqdm(datasets, total=len(datasets), desc="Processing datasets..."):
+            raw_merged_edges, _ = load_merged_edges(f"./datasets/{dataset}/edges_parsed.csv", None, args)
+            filtered_merged_edges = filter_merged_edges(raw_merged_edges, min_count=10)
+            scaled_merged_edges, scalers = scale_merged_edges(filtered_merged_edges, scaler_type=args.scaler_type)
+            
+            
+            for bs in tqdm(batch_update_size, total=len(batch_update_size), desc="Processing batch sizes..."):
+                print(f"### Currently processing dataset {dataset} with batch size {bs} ###", flush=True)
+                batch_update_merged_edges = split_merged_edges_by_datapoint_count(scaled_merged_edges, bs)
+                print(f"Batch update merged edges: {len(batch_update_merged_edges)}", flush=True)
+                
+                # Count and print edges with data points greater than batch_update_size
+                large_edges = [
+                    key for key in scaled_merged_edges.keys()
+                    if (isinstance(scaled_merged_edges[key], dict) and len(scaled_merged_edges[key].get("timestamps", [])) > bs) or
+                       (not isinstance(scaled_merged_edges[key], dict) and len(scaled_merged_edges[key]) > bs)
+                ]
+                print(f"Number of edges with data points > batch_update_size ({bs}): {len(large_edges)}", flush=True)
+
+                previous_gmms = None
+                edge_data_counts = {}
+                for batch_update_merged_edge in batch_update_merged_edges:
+                    # Calculate the number of data points in this batch BEFORE merging
+                    batch_counts = {}
+                    for key, timestamps in batch_update_merged_edge.items():
+                        assert isinstance(timestamps, list), f"Expected timestamps to be a list for key {key}, but got {type(timestamps)}"
+                        batch_counts[key] = len(timestamps)
+
+                    if previous_gmms is not None:
+                        batch_update_merged_edge = merge_gmm_grid_with_batch_edges(
+                            previous_gmms, 
+                            batch_update_merged_edge,
+                            edge_data_counts=edge_data_counts,
+                            gh_points_per_component=3
+                        )
+                        print("Finished merging with previous gmm", flush=True)
+                    
+                    print("Num of keys for batch_update_merged_edge: ", len(batch_update_merged_edge.keys()), flush=True)
+
+                    gmms, _ = fit_batched_gpu_dpgmm(
+                        batch_update_merged_edge,
+                        n_components=args.K,
+                        long_data_mode=args.long_data_mode,
+                        long_data_threshold=args.long_data_threshold,
+                        min_count=10,
+                        batch_size=256,
+                        max_iter=100,
+                        random_state=42,
+                        truncate_threshold=args.truncate_threshold,
+                        device="cuda",
+                        preprocessed=True
+                    )
+
+                    # Update GMMs: merge current batch results with previous
+                    previous_gmms = previous_gmms or {}
+                    previous_gmms.update(gmms)
+                    
+                    # Update edge data counts with the data points from this batch
+                    for key, count in batch_counts.items():
+                        edge_data_counts[key] = edge_data_counts.get(key, 0) + count
+
+                    print("Previous gmms number of keys: ", len(previous_gmms.keys()), flush=True)
+                    print("Edge data counts: ", {k: v for k, v in list(edge_data_counts.items())[:3]}, "...", flush=True)
+
+                print("previous_gmms:", previous_gmms, flush=True)
+                evaluate_enhancement_storage(previous_gmms, scaled_merged_edges)
+                evaluate_enhancement_fidelity(previous_gmms, scaled_merged_edges, batch_size=16)
+
+            # Save top 5 most interesting visualizations after all batch updates complete
+            from pathlib import Path
+            
+            if len(previous_gmms) > 0:
+                # Create output directory structure
+                viz_base = Path("results") / f"dataset_{dataset}"
+                viz_base.mkdir(parents=True, exist_ok=True)
+                
+                # Find multimodal edges
+                multimodal_edges = find_multimodal_edges(
+                    previous_gmms,
+                    scaled_merged_edges,
+                    min_components=2,
+                    weight_threshold=0.1,
+                    top_n=20
+                )
+                
+                # Save top 5 visualizations
+                for rank, (edge_key, score_dict) in enumerate(multimodal_edges, 1):
+                    draw_gmm_distribution_over_data(
+                        gmms=previous_gmms,
+                        scaled_merged_edges=scaled_merged_edges,
+                        scalers=scalers,
+                        edge_key=edge_key,
+                        figsize=(12, 6),
+                        save_path=str(viz_base / f"rank_{rank}_{str(edge_key).replace('/', '_').replace(' ', '')}.png")
+                    )
+                    print(f"Saved visualization rank {rank} for edge {edge_key}", flush=True)
+
+
+        print("Finished Experiment!")
 
     # elif args.experiment_type == "reduction_dbstream_e5_trace":
     #     args.sys_call = True

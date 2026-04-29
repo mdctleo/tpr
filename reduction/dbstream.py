@@ -107,7 +107,7 @@ def compute_pairwise_distance_stats(data, chunk_size=1000, sample_size=100000):
     std_distance = 0
     total_pairs = 0
 
-    for i in tqdm(range(0, len(data), chunk_size), desc="Computing pairwise distances"):
+    for i in range(0, len(data), chunk_size):
         chunk_i = data[i:i+chunk_size]
         for j in range(0, len(data), chunk_size):
             chunk_j = data[j:j+chunk_size]
@@ -127,7 +127,7 @@ def tune_dbstream_params(data, bandwidth):
     # print("Tune database data shape: ", data.shape, flush=True)
 
     # Compute pairwise distances
-    avg_distance, std_distance = compute_pairwise_distance_stats(data, chunk_size=1000)
+    avg_distance, std_distance = compute_pairwise_distance_stats(data, chunk_size=10000)
 
     # # Clustering threshold
     # clustering_threshold = avg_distance * 0.15
